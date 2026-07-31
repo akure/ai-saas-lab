@@ -1,0 +1,9 @@
+{
+    "go.useLanguageServer": true,
+    "go.alternateTools": {
+        "gopls": "C:\\Users\\100CR\\go\\bin\\gopls.exe"
+    },
+    "gopls": {
+        "ui.completion.usePlaceholders": true
+    }
+}
