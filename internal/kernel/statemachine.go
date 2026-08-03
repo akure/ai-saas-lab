@@ -36,12 +36,15 @@ func NewTransition[S comparable, E comparable, T any](from S, event E, to S) Tra
 }
 
 // WithGuard appends one or more guard closures to the transition.
+// Note: Uses value semantics (like Go's append). Callers must chain or reassign the return value
+// (e.g., t = t.WithGuard(g) or sm.AddTransition(NewTransition(...).WithGuard(g))).
 func (t Transition[S, E, T]) WithGuard(guards ...GuardFunc[S, E, T]) Transition[S, E, T] {
 	t.Guards = append(t.Guards, guards...)
 	return t
 }
 
 // WithAction attaches a side-effect execution closure to the transition.
+// Note: Uses value semantics. Callers must chain or reassign the return value.
 func (t Transition[S, E, T]) WithAction(action ActionFunc[S, E, T]) Transition[S, E, T] {
 	t.Action = action
 	return t
