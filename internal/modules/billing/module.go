@@ -12,7 +12,7 @@ import (
 
 type Module struct {
 	app *kernel.App
-	fsm *kernel.StateMachine
+	fsm *kernel.StateMachine[kernel.State, string, string]
 }
 
 func New() *Module { return &Module{} }
@@ -45,13 +45,13 @@ func (m *Module) Init(app *kernel.App) error {
 	})
 
 	// --- Subscription state machine: trial -> active -> past_due -> cancelled ---
-	m.fsm = kernel.NewStateMachine().
-		AddTransition(kernel.Transition{From: "trial", Event: "activate", To: "active"}).
-		AddTransition(kernel.Transition{From: "active", Event: "payment_failed", To: "past_due"}).
-		AddTransition(kernel.Transition{From: "past_due", Event: "payment_succeeded", To: "active"}).
-		AddTransition(kernel.Transition{From: "past_due", Event: "cancel", To: "cancelled"}).
-		AddTransition(kernel.Transition{From: "active", Event: "cancel", To: "cancelled"}).
-		AddTransition(kernel.Transition{From: "trial", Event: "cancel", To: "cancelled"})
+	m.fsm = kernel.NewStateMachine[kernel.State, string, string]().
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("trial", "activate", "active")).
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("active", "payment_failed", "past_due")).
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("past_due", "payment_succeeded", "active")).
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("past_due", "cancel", "cancelled")).
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("active", "cancel", "cancelled")).
+		AddTransition(kernel.NewTransition[kernel.State, string, string]("trial", "cancel", "cancelled"))
 		// Note: no transition exists from "cancelled" to anything, and none
 		// from "trial" straight to "past_due" — both are structurally blocked.
 

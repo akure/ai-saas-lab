@@ -62,24 +62,42 @@ This launches a Linux-style terminal dashboard for real-time monitoring, multi-t
 
 ### 1. Create an API key
 
+**Bash:**
 ```bash
 curl -X POST http://localhost:8080/admin/api-keys \
   -H "Content-Type: application/json" \
   -d '{"plan":"pro"}'
 ```
 
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/admin/api-keys" -Method Post -ContentType "application/json" -Body '{"plan":"pro"}'
+```
+
 ### 2. Call the completion endpoint
 
+**Bash:**
 ```bash
 curl -N -X POST http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"api_key":"YOUR_API_KEY","prompt":"hello from the lab"}'
 ```
 
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/v1/chat/completions" -Method Post -ContentType "application/json" -Body '{"api_key":"YOUR_API_KEY","prompt":"hello from the lab"}'
+```
+
 ### 3. Check usage
 
+**Bash:**
 ```bash
 curl http://localhost:8080/v1/usage/YOUR_API_KEY
+```
+
+**PowerShell:**
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8080/v1/usage/YOUR_API_KEY"
 ```
 
 ## Project structure
