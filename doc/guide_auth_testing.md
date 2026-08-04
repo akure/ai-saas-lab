@@ -5,7 +5,7 @@ This guide shows how to test the auth module with HTTP requests from:
 - Windows PowerShell
 - A browser
 
-The app listens on port 8080 by default, as defined in [config.env](config.env).
+The app listens on port 8080 by default, as defined in [config.env](../config.env).
 
 ## 1. Start the app
 
