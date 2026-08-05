@@ -142,12 +142,12 @@ func (s *Store) SubscriptionState(key string) State {
 // ---------------------------------------------------------------------------
 
 // RegisterServiceSubscription delegates to the MeteringChain for multi-backend
-// fan-out. Falls back to no-op if chain is not initialized (safe for tests).
-func (s *Store) RegisterServiceSubscription(sub ServiceSubscription) {
+// fan-out. Returns any error from non-L1 backends (L1 memory never fails).
+func (s *Store) RegisterServiceSubscription(sub ServiceSubscription) error {
 	if s.meteringChain != nil {
-		s.meteringChain.RegisterServiceSubscription(sub)
-		return
+		return s.meteringChain.RegisterServiceSubscription(sub)
 	}
+	return nil
 }
 
 // GetServiceSubscriptions delegates to the MeteringChain for priority-cascaded reads.
@@ -159,26 +159,27 @@ func (s *Store) GetServiceSubscriptions(tenantKey string) []ServiceSubscription 
 }
 
 // RecordMeteringEvent delegates to the MeteringChain and maintains the legacy
-// usage counter for the quota policy ("under-quota").
-func (s *Store) RecordMeteringEvent(event MeteringEvent) {
+// usage counter for the quota policy.
+func (s *Store) RecordMeteringEvent(event MeteringEvent) error {
 	if event.TenantKey == "" {
-		return
+		return nil
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
 
-	// Delegate to chain for multi-backend storage.
+	var chainErr error
 	if s.meteringChain != nil {
-		s.meteringChain.RecordMeteringEvent(event)
+		chainErr = s.meteringChain.RecordMeteringEvent(event)
 	}
 
-	// Maintain legacy usage counter for backward-compatible quota checks.
+	// Maintain legacy usage counter regardless of chain result.
 	if event.MetricID == "total_tokens" || event.MetricID == "tokens" {
 		s.mu.Lock()
 		s.usage[event.TenantKey] += int(event.Quantity)
 		s.mu.Unlock()
 	}
+	return chainErr
 }
 
 // GetServiceBillingStatement delegates to the MeteringChain for priority-cascaded reads.

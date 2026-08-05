@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -108,6 +109,10 @@ func buildMeteringChain(cfg *Config) (*MeteringChain, error) {
 		backendsStr = "memory"
 	}
 
+	// Use a short startup context for backend connection probes.
+	startCtx, startCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer startCancel()
+
 	memAdded := false
 	for _, name := range strings.Split(backendsStr, ",") {
 		name = strings.TrimSpace(name)
@@ -120,14 +125,23 @@ func buildMeteringChain(cfg *Config) (*MeteringChain, error) {
 			memAdded = true
 		case "postgres":
 			if cfg.MeteringPostgresDSN != "" {
-				chain.AddBackend(NewPostgresMeteringStore(cfg.MeteringPostgresDSN))
+				pg, err := NewPostgresMeteringStore(startCtx, cfg.MeteringPostgresDSN)
+				if err != nil {
+					fmt.Printf("[app] WARNING: postgres backend failed to connect: %v\n", err)
+				} else {
+					chain.AddBackend(pg)
+				}
 			}
 		case "redis":
 			if cfg.MeteringRedisAddr != "" {
-				chain.AddBackend(NewRedisMeteringStore(cfg.MeteringRedisAddr))
+				rd, err := NewRedisMeteringStore(startCtx, cfg.MeteringRedisAddr)
+				if err != nil {
+					fmt.Printf("[app] WARNING: redis backend failed to connect: %v\n", err)
+				} else {
+					chain.AddBackend(rd)
+				}
 			}
 		default:
-			// Unknown backend name — skip with warning (only if non-empty).
 			fmt.Printf("[app] WARNING: unknown metering backend %q, skipping\n", name)
 		}
 	}

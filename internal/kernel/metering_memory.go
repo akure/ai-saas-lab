@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -13,10 +14,6 @@ import (
 // It is always present in the MeteringChain as the L1 (fastest) backend.
 // Data is lost on process restart — that's by design; the persistent
 // backends (PostgreSQL) provide durability.
-//
-// This implementation is extracted from the original Store struct in store.go.
-// The data structures and algorithms are identical; only the ownership has
-// moved to enable the multi-backend chain pattern.
 type MemoryMeteringStore struct {
 	mu                   sync.RWMutex
 	serviceSubscriptions map[string]map[string]ServiceSubscription // tenantKey → serviceID → sub
@@ -33,20 +30,21 @@ func NewMemoryMeteringStore() *MemoryMeteringStore {
 
 // --- MeteringStore identity ---
 
-func (m *MemoryMeteringStore) Name() string  { return "memory" }
-func (m *MemoryMeteringStore) Priority() int { return 0 }
-func (m *MemoryMeteringStore) Healthy() bool { return true } // RAM doesn't go down
+func (m *MemoryMeteringStore) Name() string                   { return "memory" }
+func (m *MemoryMeteringStore) Priority() int                  { return 0 }
+func (m *MemoryMeteringStore) Healthy() bool                  { return true } // RAM doesn't go down
+func (m *MemoryMeteringStore) Ping(_ context.Context) error   { return nil } // always reachable
 
 // --- Write path ---
 
 // RegisterServiceSubscription registers or updates a service-specific
-// subscription contract for a tenant.
-func (m *MemoryMeteringStore) RegisterServiceSubscription(sub ServiceSubscription) {
+// subscription contract for a tenant. Returns nil always (memory never fails).
+func (m *MemoryMeteringStore) RegisterServiceSubscription(sub ServiceSubscription) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if sub.TenantKey == "" || sub.ServiceID == "" {
-		return
+		return nil
 	}
 	if sub.Timezone == "" {
 		sub.Timezone = "UTC"
@@ -61,27 +59,27 @@ func (m *MemoryMeteringStore) RegisterServiceSubscription(sub ServiceSubscriptio
 		m.serviceSubscriptions[sub.TenantKey] = make(map[string]ServiceSubscription)
 	}
 	m.serviceSubscriptions[sub.TenantKey][sub.ServiceID] = sub
+	return nil
 }
 
-// RecordMeteringEvent appends a new billable metering event to the tenant's
-// time-series log.
-func (m *MemoryMeteringStore) RecordMeteringEvent(event MeteringEvent) {
+// RecordMeteringEvent appends a new billable metering event.
+// Returns nil always (memory never fails).
+func (m *MemoryMeteringStore) RecordMeteringEvent(event MeteringEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if event.TenantKey == "" {
-		return
+		return nil
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now().UTC()
 	}
 	m.meteringEvents[event.TenantKey] = append(m.meteringEvents[event.TenantKey], event)
+	return nil
 }
 
 // --- Read path ---
 
-// GetServiceSubscriptions retrieves all active service subscriptions for a
-// given tenant.
 func (m *MemoryMeteringStore) GetServiceSubscriptions(tenantKey string) []ServiceSubscription {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -97,9 +95,6 @@ func (m *MemoryMeteringStore) GetServiceSubscriptions(tenantKey string) []Servic
 	return res
 }
 
-// GetServiceBillingStatement computes the billing statement for a specific
-// service subscription at targetTime. The cycle window is resolved using the
-// subscription's AnchorTime and Timezone.
 func (m *MemoryMeteringStore) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -127,30 +122,23 @@ func (m *MemoryMeteringStore) GetServiceBillingStatement(tenantKey, serviceID st
 		GeneratedAt:    time.Now().UTC(),
 	}
 
-	events := m.meteringEvents[tenantKey]
-	for _, evt := range events {
+	for _, evt := range m.meteringEvents[tenantKey] {
 		if evt.ServiceID != serviceID {
 			continue
 		}
 		if (evt.Timestamp.Equal(startUTC) || evt.Timestamp.After(startUTC)) && evt.Timestamp.Before(endUTC) {
 			ms, exists := stmt.Metrics[evt.MetricID]
 			if !exists {
-				ms = &MetricSummary{
-					MetricID: evt.MetricID,
-					Unit:     evt.Unit,
-				}
+				ms = &MetricSummary{MetricID: evt.MetricID, Unit: evt.Unit}
 				stmt.Metrics[evt.MetricID] = ms
 			}
 			ms.CycleTotal += evt.Quantity
 			ms.TotalEvents++
 		}
 	}
-
 	return stmt, true
 }
 
-// GetTenantBillingOverview returns all service billing statements for a tenant
-// at targetTime.
 func (m *MemoryMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -181,19 +169,14 @@ func (m *MemoryMeteringStore) GetTenantBillingOverview(tenantKey string, targetT
 			Metrics:        make(map[string]*MetricSummary),
 			GeneratedAt:    time.Now().UTC(),
 		}
-
-		events := m.meteringEvents[tenantKey]
-		for _, evt := range events {
+		for _, evt := range m.meteringEvents[tenantKey] {
 			if evt.ServiceID != serviceID {
 				continue
 			}
 			if (evt.Timestamp.Equal(startUTC) || evt.Timestamp.After(startUTC)) && evt.Timestamp.Before(endUTC) {
 				ms, exists := stmt.Metrics[evt.MetricID]
 				if !exists {
-					ms = &MetricSummary{
-						MetricID: evt.MetricID,
-						Unit:     evt.Unit,
-					}
+					ms = &MetricSummary{MetricID: evt.MetricID, Unit: evt.Unit}
 					stmt.Metrics[evt.MetricID] = ms
 				}
 				ms.CycleTotal += evt.Quantity
@@ -202,6 +185,5 @@ func (m *MemoryMeteringStore) GetTenantBillingOverview(tenantKey string, targetT
 		}
 		overview.Statements = append(overview.Statements, stmt)
 	}
-
 	return overview
 }

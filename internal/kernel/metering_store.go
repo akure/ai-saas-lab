@@ -1,6 +1,10 @@
 package kernel
 
-import "time"
+import (
+	"context"
+	"time"
+)
+
 
 // ---------------------------------------------------------------------------
 // MeteringStore — the contract every storage backend implements.
@@ -25,9 +29,11 @@ type MeteringStore interface {
 	Priority() int
 
 	// Healthy reports whether this backend is currently reachable and able
-	// to serve reads/writes. Used by the chain to skip unhealthy backends
-	// and by the health endpoint for observability.
+	// to serve reads/writes. Set by the background health-check goroutine.
 	Healthy() bool
+
+	// Ping verifies backend connectivity for health-check goroutines.
+	Ping(ctx context.Context) error
 }
 
 // ---------------------------------------------------------------------------
@@ -43,10 +49,17 @@ type MeteringStoreReader interface {
 	GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview
 }
 
-// MeteringEventRecorder is the write-only view for event producers. Use
-// this interface for services that emit metering events but should never
-// query billing data.
+// MeteringEventRecorder is the write-only view for event producers.
+//
+// Both write methods return error so the chain's async workers and circuit
+// breakers receive real failure signals instead of polling Healthy().
 type MeteringEventRecorder interface {
-	RegisterServiceSubscription(sub ServiceSubscription)
-	RecordMeteringEvent(event MeteringEvent)
+	// RegisterServiceSubscription persists or upserts a subscription contract.
+	// Returns an error if the backend is unreachable or the write fails.
+	RegisterServiceSubscription(sub ServiceSubscription) error
+
+	// RecordMeteringEvent appends a billable event. Returns an error if the
+	// backend is unreachable or the write fails. The chain will route failures
+	// to the WAL and trip the circuit breaker.
+	RecordMeteringEvent(event MeteringEvent) error
 }

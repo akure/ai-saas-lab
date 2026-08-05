@@ -53,7 +53,8 @@ func (m *Module) Init(app *kernel.App) error {
 			}
 		}
 		if !hasAISub {
-			app.Store.RegisterServiceSubscription(ServiceSubscription{
+			// Ignore error — L1 memory write never fails; slow backends handled by chain.
+			_ = app.Store.RegisterServiceSubscription(ServiceSubscription{
 				SubscriptionID: "sub_ai_" + rec.APIKey,
 				TenantKey:      rec.APIKey,
 				ServiceID:      "ai-completion",
@@ -65,7 +66,8 @@ func (m *Module) Init(app *kernel.App) error {
 			})
 		}
 
-		app.Store.RecordMeteringEvent(MeteringEvent{
+		// Ignore L2/L3 backend errors on hot path — chain routes to WAL automatically.
+		_ = app.Store.RecordMeteringEvent(MeteringEvent{
 			EventID:   "evt_completion_" + time.Now().UTC().Format("20060102150405.000"),
 			TenantKey: rec.APIKey,
 			ServiceID: "ai-completion",
@@ -143,7 +145,10 @@ func (m *Module) handleRegisterSubscription(w http.ResponseWriter, r *http.Reque
 	if sub.SubscriptionID == "" {
 		sub.SubscriptionID = "sub_" + sub.ServiceID + "_" + sub.TenantKey
 	}
-	m.app.Store.RegisterServiceSubscription(sub)
+	if err := m.app.Store.RegisterServiceSubscription(sub); err != nil {
+		http.Error(w, "failed to register subscription: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{

@@ -157,10 +157,10 @@ func (c *MeteringChain) RemoveBackend(name string) {
 
 // RecordMeteringEvent implements MeteringStore. Sync to L1, async fan-out
 // to all other backends with dedup, circuit breaker, and WAL protection.
-func (c *MeteringChain) RecordMeteringEvent(event MeteringEvent) {
+func (c *MeteringChain) RecordMeteringEvent(event MeteringEvent) error {
 	// Step 1: Dedup check.
 	if c.dedup.IsDuplicate(event.EventID) {
-		return // silently reject duplicate
+		return nil // silently reject duplicate
 	}
 
 	c.mu.RLock()
@@ -171,7 +171,9 @@ func (c *MeteringChain) RecordMeteringEvent(event MeteringEvent) {
 	// Step 2: Sync write to L1 (first backend, priority 0 = memory).
 	for _, b := range backends {
 		if b.Priority() == 0 {
-			b.RecordMeteringEvent(event)
+			if err := b.RecordMeteringEvent(event); err != nil {
+				return fmt.Errorf("L1 write failed: %w", err)
+			}
 			break
 		}
 	}
@@ -204,17 +206,19 @@ func (c *MeteringChain) RecordMeteringEvent(event MeteringEvent) {
 			}
 		}
 	}
+	return nil
 }
 
 // RegisterServiceSubscription implements MeteringStore. Subscriptions are
 // rare operations where correctness trumps speed, so we write synchronously
-// to all healthy backends (not async).
-func (c *MeteringChain) RegisterServiceSubscription(sub ServiceSubscription) {
+// to all healthy backends (not async), collecting any errors.
+func (c *MeteringChain) RegisterServiceSubscription(sub ServiceSubscription) error {
 	c.mu.RLock()
 	backends := make([]MeteringStore, len(c.backends))
 	copy(backends, c.backends)
 	c.mu.RUnlock()
 
+	var firstErr error
 	for _, b := range backends {
 		c.mu.RLock()
 		cb, hasCB := c.breakers[b.Name()]
@@ -225,12 +229,22 @@ func (c *MeteringChain) RegisterServiceSubscription(sub ServiceSubscription) {
 			continue
 		}
 
-		b.RegisterServiceSubscription(sub)
+		if err := b.RegisterServiceSubscription(sub); err != nil {
+			if hasCB {
+				cb.RecordFailure()
+			}
+			c.walAppendSub(b.Name(), sub)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("backend %q: %w", b.Name(), err)
+			}
+			continue
+		}
 
 		if hasCB {
 			cb.RecordSuccess()
 		}
 	}
+	return firstErr
 }
 
 // ---------------------------------------------------------------------------
@@ -333,8 +347,9 @@ func (c *MeteringChain) GetTenantBillingOverview(tenantKey string, targetTime ti
 // MeteringStore identity (the chain itself satisfies the interface)
 // ---------------------------------------------------------------------------
 
-func (c *MeteringChain) Name() string  { return "chain" }
-func (c *MeteringChain) Priority() int { return -1 } // never used in a chain-of-chains
+func (c *MeteringChain) Name() string                 { return "chain" }
+func (c *MeteringChain) Priority() int                 { return -1 }
+func (c *MeteringChain) Ping(_ context.Context) error  { return nil } // chain-of-chains always reachable
 func (c *MeteringChain) Healthy() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -465,7 +480,8 @@ func (c *MeteringChain) Stop() {
 // ---------------------------------------------------------------------------
 
 // asyncWriteWorker drains the bounded channel for a single backend,
-// writing each operation and updating the circuit breaker on success/failure.
+// writing each operation and updating the circuit breaker on success/failure
+// using the returned error — not Healthy() polling.
 func (c *MeteringChain) asyncWriteWorker(backend MeteringStore, ch chan writeOp) {
 	defer c.wg.Done()
 
@@ -476,7 +492,6 @@ func (c *MeteringChain) asyncWriteWorker(backend MeteringStore, ch chan writeOp)
 
 		// Check circuit breaker before attempting.
 		if hasCB && !cb.Allow() {
-			// Circuit is open — send to WAL instead.
 			switch op.opType {
 			case "record_event":
 				c.walAppendEvent(backend.Name(), *op.event)
@@ -488,27 +503,23 @@ func (c *MeteringChain) asyncWriteWorker(backend MeteringStore, ch chan writeOp)
 
 		switch op.opType {
 		case "record_event":
-			// For stubs, RecordMeteringEvent doesn't return error, but
-			// the circuit breaker still tracks health via Healthy().
-			backend.RecordMeteringEvent(*op.event)
-			if hasCB {
-				if backend.Healthy() {
-					cb.RecordSuccess()
-				} else {
+			if err := backend.RecordMeteringEvent(*op.event); err != nil {
+				if hasCB {
 					cb.RecordFailure()
-					c.walAppendEvent(backend.Name(), *op.event)
 				}
+				c.walAppendEvent(backend.Name(), *op.event)
+			} else if hasCB {
+				cb.RecordSuccess()
 			}
 
 		case "register_sub":
-			backend.RegisterServiceSubscription(*op.sub)
-			if hasCB {
-				if backend.Healthy() {
-					cb.RecordSuccess()
-				} else {
+			if err := backend.RegisterServiceSubscription(*op.sub); err != nil {
+				if hasCB {
 					cb.RecordFailure()
-					c.walAppendSub(backend.Name(), *op.sub)
 				}
+				c.walAppendSub(backend.Name(), *op.sub)
+			} else if hasCB {
+				cb.RecordSuccess()
 			}
 		}
 	}
@@ -573,14 +584,24 @@ func (c *MeteringChain) replayWALEntry(entry WALEntry) error {
 		if err := json.Unmarshal(entry.Payload, &event); err != nil {
 			return fmt.Errorf("unmarshal event: %w", err)
 		}
-		target.RecordMeteringEvent(event)
+		if err := target.RecordMeteringEvent(event); err != nil {
+			if hasCB {
+				cb.RecordFailure()
+			}
+			return fmt.Errorf("backend %q replay failed: %w", entry.BackendName, err)
+		}
 
 	case "register_sub":
 		var sub ServiceSubscription
 		if err := json.Unmarshal(entry.Payload, &sub); err != nil {
 			return fmt.Errorf("unmarshal subscription: %w", err)
 		}
-		target.RegisterServiceSubscription(sub)
+		if err := target.RegisterServiceSubscription(sub); err != nil {
+			if hasCB {
+				cb.RecordFailure()
+			}
+			return fmt.Errorf("backend %q replay failed: %w", entry.BackendName, err)
+		}
 
 	default:
 		return fmt.Errorf("unknown WAL operation: %q", entry.Operation)

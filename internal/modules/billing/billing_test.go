@@ -59,7 +59,7 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 	anchor2, _ := time.Parse(time.RFC3339, "2026-08-15T12:00:00Z")
 
 	// Service 1 subscription
-	store.RegisterServiceSubscription(billing.ServiceSubscription{
+	_ = store.RegisterServiceSubscription(billing.ServiceSubscription{
 		SubscriptionID: "sub_ai",
 		TenantKey:      "tenant_1",
 		ServiceID:      "ai-completion",
@@ -71,7 +71,7 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 	})
 
 	// Service 2 subscription
-	store.RegisterServiceSubscription(billing.ServiceSubscription{
+	_ = store.RegisterServiceSubscription(billing.ServiceSubscription{
 		SubscriptionID: "sub_storage",
 		TenantKey:      "tenant_1",
 		ServiceID:      "object-storage",
@@ -86,7 +86,7 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 	evtTime1, _ := time.Parse(time.RFC3339, "2026-08-10T15:00:00Z")
 	evtTime2, _ := time.Parse(time.RFC3339, "2026-08-18T09:00:00Z")
 
-	store.RecordMeteringEvent(billing.MeteringEvent{
+	_ = store.RecordMeteringEvent(billing.MeteringEvent{
 		EventID:   "evt_1",
 		TenantKey: "tenant_1",
 		ServiceID: "ai-completion",
@@ -96,7 +96,7 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 		Timestamp: evtTime1,
 	})
 
-	store.RecordMeteringEvent(billing.MeteringEvent{
+	_ = store.RecordMeteringEvent(billing.MeteringEvent{
 		EventID:   "evt_2",
 		TenantKey: "tenant_1",
 		ServiceID: "object-storage",

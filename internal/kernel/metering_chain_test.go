@@ -1,6 +1,7 @@
 package kernel_test
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"testing"
@@ -27,8 +28,9 @@ func newFake(name string, priority int) *fakeBackend {
 	return &fakeBackend{name: name, priority: priority, healthy: true}
 }
 
-func (f *fakeBackend) Name() string  { return f.name }
-func (f *fakeBackend) Priority() int { return f.priority }
+func (f *fakeBackend) Name() string                  { return f.name }
+func (f *fakeBackend) Priority() int                  { return f.priority }
+func (f *fakeBackend) Ping(_ context.Context) error   { return nil }
 func (f *fakeBackend) Healthy() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -41,16 +43,18 @@ func (f *fakeBackend) setHealthy(v bool) {
 	f.healthy = v
 }
 
-func (f *fakeBackend) RecordMeteringEvent(event kernel.MeteringEvent) {
+func (f *fakeBackend) RecordMeteringEvent(event kernel.MeteringEvent) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.events = append(f.events, event)
+	return nil
 }
 
-func (f *fakeBackend) RegisterServiceSubscription(sub kernel.ServiceSubscription) {
+func (f *fakeBackend) RegisterServiceSubscription(sub kernel.ServiceSubscription) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subs = append(f.subs, sub)
+	return nil
 }
 
 func (f *fakeBackend) GetServiceSubscriptions(tenantKey string) []kernel.ServiceSubscription {
@@ -186,7 +190,7 @@ func TestChain_CascadeReads_HitsL1(t *testing.T) {
 		AnchorTime:     time.Now().UTC(),
 		Status:         "active",
 	}
-	l1.RegisterServiceSubscription(sub)
+	_ = l1.RegisterServiceSubscription(sub)
 	// Do NOT register in l2 — cascade should return from L1.
 
 	subs := chain.GetServiceSubscriptions("tenant_cascade")
@@ -215,7 +219,7 @@ func TestChain_CascadeReads_FallsToL2(t *testing.T) {
 		AnchorTime:     time.Now().UTC(),
 		Status:         "active",
 	}
-	l2.RegisterServiceSubscription(sub)
+	_ = l2.RegisterServiceSubscription(sub)
 
 	subs := chain.GetServiceSubscriptions("tenant_fallthrough")
 	if len(subs) != 1 {
@@ -511,7 +515,9 @@ func TestChain_SubscriptionFanOut(t *testing.T) {
 		Status:         "active",
 	}
 
-	chain.RegisterServiceSubscription(sub)
+	if err := chain.RegisterServiceSubscription(sub); err != nil {
+		t.Fatalf("unexpected error registering subscription: %v", err)
+	}
 
 	// Subscriptions are sync — no sleep needed.
 	if got := l1.subCount(); got != 1 {
