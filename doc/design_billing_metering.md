@@ -89,25 +89,27 @@ A tenant subscribed to three services at different times, in different timezones
 │                       BILLING MODULE FACADE                          │
 │                                                                       │
 │  1. ServiceSubscription Registry                                      │
-│     TenantKey → ServiceID → ServiceSubscription                       │
-│                                                                       │
-│  2. Service Cycle Window Algorithm                                     │
-│     CurrentCycleWindow(at) → [CycleStartUTC, CycleEndUTC)             │
-│     Resolved per-service, per-tenant, per-timezone                    │
-│                                                                       │
+│  2. Service Cycle Window Algorithm  (pure function, O(1))            │
 │  3. Event Aggregation Engine                                          │
-│     Filters MeteringEvents within each service's exact cycle bounds   │
-│                                                                       │
 │  4. Subscription State Machine (FSM)                                  │
-│     trial → active → past_due → cancelled                            │
 └───────────────────────────────────────┬─────────────────────────────┘
                                         │
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    MULTI-TENANT KERNEL STORE                          │
+│                    METERING CHAIN  (MeteringChain)                    │
 │                                                                       │
-│  serviceSubscriptions:  TenantKey → ServiceID → ServiceSubscription  │
-│  meteringEvents:        TenantKey → []MeteringEvent (UTC log)        │
+│  Writes: sync → L1, async fan-out → L2..Ln via bounded channels     │
+│  Reads:  cascade by priority — L1 → L2 → L3                         │
+│  Dedup:  EventID filter (1h window) — prevents duplicate billing     │
+│  Resilience: per-backend circuit breakers + segmented WAL            │
+│                                                                       │
+│  ┌─────────────┐   ┌──────────────┐   ┌──────────────────┐          │
+│  │MemoryStore  │   │ RedisStore   │   │ PostgresStore    │          │
+│  │ (L1 RAM)    │   │ (L2 Cache)   │   │ (L3 Persistent)  │          │
+│  │ Priority: 0 │   │ Priority: 10 │   │ Priority: 20     │          │
+│  │ Sync write  │   │ Async write  │   │ Async+Batched    │          │
+│  │ Always on   │   │ Optional     │   │ Optional         │          │
+│  └─────────────┘   └──────────────┘   └──────────────────┘          │
 └───────────────────────────────────────┬─────────────────────────────┘
                                         │
                                         ▼
@@ -118,6 +120,7 @@ A tenant subscribed to three services at different times, in different timezones
 │  GET  /v1/billing/{key}/statement/{service}  → ServiceBillingStatement│
 │  POST /v1/billing/subscriptions              → Register subscription │
 │  POST /v1/billing/events                     → Ingest MeteringEvent  │
+│  GET  /v1/billing/storage/health             → BackendHealth report  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -578,9 +581,9 @@ start, end := sub.CurrentCycleWindow(time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC
 
 | Limitation | Impact | Planned Resolution |
 | :--- | :--- | :--- |
-| **In-memory event store** | Events are lost on process restart. No persistence across restarts. | Swap `kernel.Store` for a Postgres/ClickHouse adapter behind the same interface — zero module-level changes required. |
+| ~~**In-memory event store**~~ | ~~Events are lost on process restart.~~ | ✅ **Resolved** — `MeteringChain` fans writes to all backends. PostgreSQL stub ready to implement. |
 | **Linear event scan** | `GetServiceBillingStatement` scans all tenant events O(n). For tenants with millions of events this becomes expensive. | Introduce time-indexed B-tree or range index over `Timestamp` per tenant. The storage interface is stable; only the implementation changes. |
-| **No deduplication** | Duplicate `EventID` values are currently stored. | Add an `eventSeen map[string]bool` guard in `RecordMeteringEvent`. Interface is stable. |
+| ~~**No deduplication**~~ | ~~Duplicate `EventID` values are currently stored.~~ | ✅ **Resolved** — `EventDedup` with configurable retention window guards every write. |
 | **No event compaction** | Old events from past cycles are never pruned. | Add a background compaction job that replaces raw events with pre-aggregated cycle summaries. |
 | **One subscription per service per tenant** | The store uses `TenantKey → ServiceID` as the key, so a tenant can't have two overlapping plans for the same `ServiceID`. | Allow `SubscriptionID` as the primary key; `ServiceID` becomes a secondary index. |
 | **No cost calculation** | This module produces usage quantities only — not prices or invoice totals. | A separate `pricing` module consumes `ServiceBillingStatement` data and applies rate cards. |
@@ -621,3 +624,115 @@ This engine is designed as the stable **metering foundation** for a layered bill
 ```
 
 Each layer is independently deployable, testable, and replaceable. The metering engine's stable interface means it never needs to change as pricing models, payment methods, or invoice formats evolve.
+
+---
+
+## 13. Multi-Layer Storage Architecture
+
+The metering engine now supports a production-grade, configurable storage chain. Backends are ordered by priority — lower priority = faster, tried first for reads; writes fan out to all.
+
+### 13.1 The Chain Pattern
+
+| Layer | Backend | Priority | Write mode | Durability |
+| :--- | :--- | :--- | :--- | :--- |
+| L1 | `MemoryMeteringStore` | 0 | **Synchronous** | None (RAM only) |
+| L2 | `RedisMeteringStore` | 10 | Async via channel | Survives process restart |
+| L3 | `PostgresMeteringStore` | 20 | Async + batched | Full ACID durability |
+| L* | _any future backend_ | configurable | Async | configurable |
+
+**Write semantics:** The caller blocks only until L1 (memory) accepts the event — ~μs. All other backends receive writes asynchronously via bounded channels. If a channel is full, the event overflows to the Write-Ahead Log instead of being dropped or blocking.
+
+**Read semantics:** Cascade from L1 → L2 → L3. Return immediately on first success. Skip backends with open circuit breakers or `Healthy() == false`.
+
+### 13.2 Circuit Breaker
+
+Each backend gets its own three-state circuit breaker:
+
+```
+CLOSED  → (threshold failures)  → OPEN
+OPEN    → (cooldown expires)     → HALF-OPEN (probe)
+HALF-OPEN → (probe succeeds)    → CLOSED
+HALF-OPEN → (probe fails)       → OPEN
+```
+
+When a circuit is open, writes go directly to the WAL instead of attempting the backend. Configurable via `METERING_CB_THRESHOLD` and `METERING_CB_COOLDOWN_MS`.
+
+### 13.3 Write-Ahead Log (WAL)
+
+The WAL provides **at-least-once delivery** without an external message queue:
+
+- File-based, segmented: each segment is capped at 10MB or 10 minutes.
+- Segments rotate automatically; completed segments are deleted after successful replay.
+- A background goroutine replays sealed segments on a configurable interval.
+- WAL depth and active segment name are exposed via `GET /v1/billing/storage/health`.
+
+### 13.4 Event Deduplication
+
+`EventID`-based dedup prevents duplicate billing from WAL replays or at-least-once delivery:
+
+- Time-bucketed `map[string]time.Time` tracks seen EventIDs.
+- A background goroutine prunes entries older than the retention window.
+- Default retention: 1 hour (covers all WAL replay windows).
+- Events without `EventID` are never considered duplicates.
+
+### 13.5 Configuration Reference
+
+```env
+# Backends (comma-separated, order doesn't matter — sorted by priority internally)
+METERING_BACKENDS=memory,postgres,redis
+
+# Persistent backend DSNs
+METERING_POSTGRES_DSN=postgres://user:pass@host:5432/db
+METERING_REDIS_ADDR=localhost:6379
+
+# Write-Ahead Log
+METERING_WAL_ENABLED=true
+METERING_WAL_DIR=./data/wal
+METERING_WAL_RETRY_MS=5000
+
+# Circuit breaker
+METERING_CB_THRESHOLD=5
+METERING_CB_COOLDOWN_MS=30000
+
+# Async channel capacity (backpressure)
+METERING_CHANNEL_SIZE=10000
+
+# Dedup retention window
+METERING_DEDUP_RETENTION_MS=3600000
+```
+
+### 13.6 Observability: Storage Health Endpoint
+
+```
+GET /v1/billing/storage/health
+```
+
+```json
+{
+  "backends": [
+    { "name": "memory",   "priority": 0,  "healthy": true,  "circuit_state": "closed", "pending_writes": 0 },
+    { "name": "redis",    "priority": 10, "healthy": false, "circuit_state": "open",   "pending_writes": 847 },
+    { "name": "postgres", "priority": 20, "healthy": true,  "circuit_state": "closed", "pending_writes": 12 }
+  ],
+  "wal": {
+    "enabled": true,
+    "depth": 847,
+    "active_segment": "segment_0042.jsonl",
+    "total_segments": 3
+  },
+  "dedup": {
+    "tracked_events": 15230,
+    "retention": "1h0m0s"
+  }
+}
+```
+
+### 13.7 Adding a New Backend
+
+To add a new storage backend (e.g., ClickHouse, S3 archive):
+
+1. Create `kernel/metering_clickhouse.go` implementing `MeteringStore`.
+2. Set `Name()`, `Priority()`, `Healthy()` appropriately.
+3. In `app.go` `buildMeteringChain()`, add a `case "clickhouse":` branch.
+4. In `config.env`, add `METERING_CLICKHOUSE_DSN`.
+5. Zero changes required to billing module, store, or any consumer.

@@ -102,6 +102,7 @@ func (m *Module) Init(app *kernel.App) error {
 	app.Mux.HandleFunc("GET /v1/billing/{key}/statement/{service}", m.handleGetServiceStatement)
 	app.Mux.HandleFunc("POST /v1/billing/subscriptions", m.handleRegisterSubscription)
 	app.Mux.HandleFunc("POST /v1/billing/events", m.handleIngestEvent)
+	app.Mux.HandleFunc("GET /v1/billing/storage/health", m.handleStorageHealth)
 
 	// Backward compatible & FSM routes
 	app.Mux.HandleFunc("GET /v1/usage/{key}", m.handleGetUsage)
@@ -220,3 +221,43 @@ func (m *Module) handleFireEvent(w http.ResponseWriter, r *http.Request) {
 
 func (m *Module) Start(ctx context.Context) error { return nil }
 func (m *Module) Stop(ctx context.Context) error  { return nil }
+
+// handleStorageHealth returns the status of all metering storage backends,
+// circuit breakers, WAL state, and deduplication stats.
+func (m *Module) handleStorageHealth(w http.ResponseWriter, r *http.Request) {
+	chain := m.app.Store.MeteringChainRef()
+	if chain == nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "no metering chain configured"})
+		return
+	}
+
+	type walInfo struct {
+		Enabled       bool   `json:"enabled"`
+		Depth         int    `json:"depth"`
+		ActiveSegment string `json:"active_segment"`
+		TotalSegments int    `json:"total_segments"`
+	}
+
+	type dedupInfo struct {
+		TrackedEvents int    `json:"tracked_events"`
+		Retention     string `json:"retention"`
+	}
+
+	resp := map[string]any{
+		"backends": chain.HealthReport(),
+		"wal": walInfo{
+			Enabled:       chain.WALEnabled(),
+			Depth:         chain.WALDepth(),
+			ActiveSegment: chain.WALActiveSegment(),
+			TotalSegments: chain.WALTotalSegments(),
+		},
+		"dedup": dedupInfo{
+			TrackedEvents: chain.DedupTrackedEvents(),
+			Retention:     chain.DedupRetention().String(),
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
