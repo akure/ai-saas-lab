@@ -243,9 +243,11 @@ func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID str
 
 	// Query sorted set for events within [startUTC, endUTC).
 	evtKey := fmt.Sprintf(redisEvtKeyFmt, tenantKey, serviceID)
-	members, err := r.client.ZRangeByScore(ctx, evtKey, &redis.ZRangeBy{
-		Min: fmt.Sprintf("%d", startUTC.UnixNano()),
-		Max: fmt.Sprintf("%d", endUTC.UnixNano()-1),
+	members, err := r.client.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key:     evtKey,
+		Start:   startUTC.UnixNano(),
+		Stop:    endUTC.UnixNano() - 1,
+		ByScore: true,
 	}).Result()
 	if err != nil {
 		return stmt, true // partial result

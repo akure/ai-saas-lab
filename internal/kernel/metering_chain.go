@@ -23,19 +23,21 @@ type writeOp struct {
 
 // MeteringChainConfig holds all tuning parameters for the chain.
 type MeteringChainConfig struct {
-	WAL           WALConfig
-	CircuitBreaker CircuitBreakerConfig
-	ChannelSize   int           // bounded channel capacity per async backend (default: 10000)
-	DedupRetention time.Duration // how long to remember EventIDs (default: 1h)
+	WAL             WALConfig
+	CircuitBreaker  CircuitBreakerConfig
+	ChannelSize     int           // bounded channel capacity per async backend (default: 10000)
+	DedupRetention  time.Duration // how long to remember EventIDs (default: 1h)
+	ShutdownTimeout time.Duration // max duration to wait for async workers to drain during Stop() (default: 5s)
 }
 
 // DefaultMeteringChainConfig returns production-sensible defaults.
 func DefaultMeteringChainConfig() MeteringChainConfig {
 	return MeteringChainConfig{
-		WAL:            DefaultWALConfig(),
-		CircuitBreaker: DefaultCircuitBreakerConfig(),
-		ChannelSize:    10000,
-		DedupRetention: time.Hour,
+		WAL:             DefaultWALConfig(),
+		CircuitBreaker:  DefaultCircuitBreakerConfig(),
+		ChannelSize:     10000,
+		DedupRetention:  time.Hour,
+		ShutdownTimeout: 5 * time.Second,
 	}
 }
 
@@ -450,7 +452,9 @@ func (c *MeteringChain) Start() {
 }
 
 // Stop gracefully shuts down the chain: drains async channels, flushes WAL,
-// stops workers and background goroutines.
+// stops workers and background goroutines. It waits up to ShutdownTimeout (default 5s)
+// for async workers to finish draining before forcing shutdown to prevent hanging indefinitely
+// (e.g. when a slow backend write is blocked by a network partition).
 func (c *MeteringChain) Stop() {
 	// Signal all goroutines to stop.
 	c.cancel()
@@ -463,8 +467,25 @@ func (c *MeteringChain) Stop() {
 	}
 	c.mu.Unlock()
 
-	// Wait for all async workers to finish.
-	c.wg.Wait()
+	// Wait for all async workers to finish draining with a timeout.
+	timeout := c.cfg.ShutdownTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All async workers drained successfully.
+	case <-time.After(timeout):
+		// Timeout expired waiting for workers (e.g. worker hung on slow/unresponsive backend).
+		// Force proceeding with shutdown so process/pod termination does not hang indefinitely.
+	}
 
 	// Stop the WAL and dedup background goroutines.
 	if c.wal != nil {

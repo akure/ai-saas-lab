@@ -736,3 +736,13 @@ To add a new storage backend (e.g., ClickHouse, S3 archive):
 3. In `app.go` `buildMeteringChain()`, add a `case "clickhouse":` branch.
 4. In `config.env`, add `METERING_CLICKHOUSE_DSN`.
 5. Zero changes required to billing module, store, or any consumer.
+
+### 13.8 Resilience & Fault Tolerance Guarantees
+
+- **Error Classification (Connection vs. Query Errors)**:
+  - Both PostgreSQL (`PostgresMeteringStore`) and Redis (`RedisMeteringStore`) error handlers differentiate between connection/network failures (e.g., network timeout, connection reset) and query-level/logical errors (PostgreSQL `*pgconn.PgError` constraint violations, Redis `WRONGTYPE` key collisions).
+  - Only connection-level failures mark the backend unhealthy (`healthy.Store(false)`). Query-level errors leave the backend healthy so subsequent valid writes are not unnecessarily sent to the WAL.
+- **Shutdown Drain Timeout (`WaitWithTimeout`)**:
+  - `MeteringChain.Stop()` enforces a `ShutdownTimeout` (default 5s) when draining async write worker channels.
+  - If a backend write is hung due to an unresponsive remote database or network partition, the worker drain times out gracefully after 5 seconds instead of blocking application/pod shutdown indefinitely and risking process `SIGKILL`.
+

@@ -567,3 +567,24 @@ func TestMeteringWAL_AppendAndDepth(t *testing.T) {
 		t.Errorf("expected WAL depth >= 5, got %d", depth)
 	}
 }
+
+func TestChain_ShutdownTimeout(t *testing.T) {
+	cfg := kernel.DefaultMeteringChainConfig()
+	cfg.ShutdownTimeout = 50 * time.Millisecond
+	chain, err := kernel.NewMeteringChain(cfg)
+	if err != nil {
+		t.Fatalf("NewMeteringChain failed: %v", err)
+	}
+
+	l1 := newFake("l1", 0)
+	chain.AddBackend(l1)
+	chain.Start()
+
+	start := time.Now()
+	chain.Stop()
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Errorf("Stop() took %v, expected rapid completion within timeout", elapsed)
+	}
+}
