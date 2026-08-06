@@ -2,12 +2,14 @@ package kernel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -127,7 +129,9 @@ func (p *PostgresMeteringStore) RegisterServiceSubscription(sub ServiceSubscript
 		sub.Timezone, sub.AnchorTime, sub.Status,
 	)
 	if err != nil {
-		p.healthy.Store(false)
+		if isConnectionError(err) {
+			p.healthy.Store(false)
+		}
 		return fmt.Errorf("postgres: upsert subscription: %w", err)
 	}
 	return nil
@@ -154,10 +158,23 @@ func (p *PostgresMeteringStore) RecordMeteringEvent(event MeteringEvent) error {
 		event.MetricID, event.Unit, event.Quantity, event.Timestamp,
 	)
 	if err != nil {
-		p.healthy.Store(false)
+		if isConnectionError(err) {
+			p.healthy.Store(false)
+		}
 		return fmt.Errorf("postgres: insert event: %w", err)
 	}
 	return nil
+}
+
+// isConnectionError reports whether err is a connection-level failure rather than a
+// PostgreSQL query-level error (such as a constraint violation or invalid parameter).
+// Query-level errors returned by Postgres implement *pgconn.PgError.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	return !errors.As(err, &pgErr)
 }
 
 // --- Read path ---
