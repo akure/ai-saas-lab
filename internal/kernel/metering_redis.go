@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -117,7 +118,9 @@ func (r *RedisMeteringStore) RegisterServiceSubscription(sub ServiceSubscription
 
 	key := fmt.Sprintf(redisSubKeyFmt, sub.TenantKey)
 	if err := r.client.HSet(ctx, key, sub.ServiceID, data).Err(); err != nil {
-		r.healthy.Store(false)
+		if isRedisConnectionError(err) {
+			r.healthy.Store(false)
+		}
 		return fmt.Errorf("redis: HSET subscription: %w", err)
 	}
 	return nil
@@ -151,10 +154,29 @@ func (r *RedisMeteringStore) RecordMeteringEvent(event MeteringEvent) error {
 	})
 	pipe.Expire(ctx, key, redisEventTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
-		r.healthy.Store(false)
+		if isRedisConnectionError(err) {
+			r.healthy.Store(false)
+		}
 		return fmt.Errorf("redis: ZADD event: %w", err)
 	}
 	return nil
+}
+
+// isRedisConnectionError reports whether err is a connection/network-level failure
+// rather than a logical Redis server error (e.g. WRONGTYPE key collision).
+// Logical errors returned by Redis server implement redis.Error.
+func isRedisConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, redis.Nil) {
+		return false
+	}
+	var rErr redis.Error
+	if errors.As(err, &rErr) {
+		return false
+	}
+	return true
 }
 
 // --- Read path ---
