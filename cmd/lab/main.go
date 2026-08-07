@@ -59,7 +59,19 @@ func main() {
 	}
 
 	// --- 6. The shared HTTP server every HTTP-facing module registered routes into ---
-	srv := &http.Server{Addr: ":" + cfg.HTTPPort, Handler: app.Mux}
+	corsHandler := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+	srv := &http.Server{Addr: ":" + cfg.HTTPPort, Handler: corsHandler(app.Mux)}
 	go func() {
 		log.Printf("[lab] listening on :%s (quota=%d tokens/day)\n", cfg.HTTPPort, cfg.DailyTokenQuota)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
