@@ -1,2 +1,58 @@
-data/
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build & Output
+dist/
+**/dist/
+build/
+**/build/
+.next/
+bin/
+tmp/
 /tmp/lab
+
+# Data & Storage
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.*
+!.env.example
+*.env.local
+
+# Go binaries & test coverage
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+*.cover
+*.coverprofile
+coverage.txt
+coverage.html
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test reports
+playwright-report/
+test-results/
+
+# Editor & OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+

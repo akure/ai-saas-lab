@@ -1,0 +1,40 @@
+{
+  "workflow_id": "client_dashboard_e2e_agentic_testing",
+  "name": "Client Dashboard E2E Agentic Testing Workflow",
+  "created_at": "2026-08-08T11:04:00Z",
+  "orchestrator": {
+    "name": "Antigravity Primary Agent",
+    "mode": "Planning and Subagent Dispatch"
+  },
+  "execution_dag": [
+    {
+      "phase": "STATIC_TYPE_CHECK",
+      "command": "cmd /c \"npm run build\"",
+      "cwd": "client",
+      "expected_exit_code": 0,
+      "blocking": true
+    },
+    {
+      "phase": "BACKGROUND_SERVER_LAUNCH",
+      "command": "cmd /c \"npm run dev\"",
+      "cwd": "client",
+      "async": true,
+      "expected_port": 3000,
+      "health_check_url": "http://localhost:3000"
+    },
+    {
+      "phase": "BROWSER_SUBAGENT_EXECUTION",
+      "subagent_type": "browser_subagent",
+      "recording_name": "client_dashboard_flow",
+      "task_description": "Validate header status, navigate sidebar tabs, create API keys, test metering sliders, export JSON telemetry, and test API playground.",
+      "timeout_seconds": 120
+    },
+    {
+      "phase": "VERIFICATION_AND_DOCUMENTATION",
+      "actions": [
+        "generate_walkthrough_md",
+        "save_agentic_testing_specs"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0B0B0E;
+    color: #E2E8F0;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom Scrollbar for Black & Gold Theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #121217;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333344;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #D4AF37;
+}
+
+/* Glassmorphism Panels */
+.glass-panel {
+  background: rgba(18, 18, 23, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+}
+
+.glass-panel-gold {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.08) 0%, rgba(18, 18, 23, 0.85) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+/* Metallic Gold Text Gradient */
+.gold-text-gradient {
+  background: linear-gradient(135deg, #FFF9C2 0%, #D4AF37 50%, #AA771C 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Commercial Gold Button Gradient */
+.gold-button {
+  background: linear-gradient(135deg, #D4AF37 0%, #AA771C 100%);
+  color: #0B0B0E;
+  font-weight: 600;
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.2);
+}
+
+.gold-button:hover {
+  background: linear-gradient(135deg, #F5CE26 0%, #C58C24 100%);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Custom Dynamic Flexible Range Slider Styling */
+input[type="range"].gold-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: #1A1A23;
+  border-radius: 3px;
+  outline: none;
+}
+
+input[type="range"].gold-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #FFF9C2 0%, #D4AF37 100%);
+  cursor: pointer;
+  border: 2px solid #0B0B0E;
+  box-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"].gold-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 16px rgba(212, 175, 55, 0.8);
+}

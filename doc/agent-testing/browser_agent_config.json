@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "browser_subagent_config",
+  "description": "Configuration schema for local and self-deployed AI browser testing subagents.",
+  "version": "1.0.0",
+  "agent_metadata": {
+    "agent_type": "BrowserSubagent",
+    "capabilities": [
+      "cdp_browser_control",
+      "dom_accessibility_tree_parsing",
+      "element_interaction_clicking_typing_dragging",
+      "webp_video_session_recording",
+      "screenshot_capture",
+      "network_response_interception"
+    ]
+  },
+  "browser_options": {
+    "headless": true,
+    "viewport": {
+      "width": 1536,
+      "height": 730
+    },
+    "device_scale_factor": 1,
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AI-SaaS-Lab Agentic Tester",
+    "video_recording": {
+      "enabled": true,
+      "format": "webp",
+      "output_dir": "./artifacts/recordings/"
+    }
+  },
+  "default_test_suite": {
+    "target_url": "http://localhost:3000",
+    "timeout_ms": 30000,
+    "steps": [
+      {
+        "step_id": 1,
+        "action": "navigate",
+        "url": "http://localhost:3000",
+        "verify_element": "h1"
+      },
+      {
+        "step_id": 2,
+        "action": "click",
+        "target": "API Keys",
+        "verify_modal": "Create Production API Key"
+      },
+      {
+        "step_id": 3,
+        "action": "drag_slider",
+        "target": "input[type=\"range\"].gold-slider",
+        "value": 350
+      },
+      {
+        "step_id": 4,
+        "action": "download_json",
+        "target": "Export JSON",
+        "expected_format": "application/json"
+      }
+    ]
+  }
+}
