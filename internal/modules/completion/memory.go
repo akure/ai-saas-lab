@@ -19,7 +19,7 @@ func NewMemoryEngine(sm *SessionManager) *MemoryEngine {
 // RecalledMemory represents a snippet retrieved from previous sessions.
 type RecalledMemory struct {
 	SessionID string
-	Role      string
+	Role      MessageRole
 	Content   string
 }
 
@@ -81,7 +81,7 @@ func (me *MemoryEngine) RetrieveContext(apiKey string, currentSessionID string, 
 	var sb strings.Builder
 	sb.WriteString("[RECALLED CONTEXT FROM PREVIOUS CONVERSATIONS]\n")
 	for _, m := range memories {
-		sb.WriteString(fmt.Sprintf("- (Session %s) %s: %s\n", m.SessionID, strings.ToUpper(m.Role), m.Content))
+		sb.WriteString(fmt.Sprintf("- (Session %s) %s: %s\n", m.SessionID, strings.ToUpper(m.Role.String()), m.Content))
 	}
 	sb.WriteString("[END RECALLED CONTEXT]\n Use this context to answer the user if relevant.")
 

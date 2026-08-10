@@ -248,7 +248,7 @@ func (p *PostgresMeteringStore) GetServiceBillingStatement(tenantKey, serviceID 
 		Timezone:       sub.Timezone,
 		CycleStartUTC:  startUTC,
 		CycleEndUTC:    endUTC,
-		Metrics:        make(map[string]*MetricSummary),
+		Metrics:        make(map[MetricID]*MetricSummary),
 		GeneratedAt:    time.Now().UTC(),
 	}
 
@@ -280,8 +280,9 @@ func (p *PostgresMeteringStore) GetServiceBillingStatement(tenantKey, serviceID 
 
 // GetTenantBillingOverview returns all service billing statements for a tenant.
 func (p *PostgresMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+	tk, _ := NewTenantKey(tenantKey)
 	overview := TenantBillingOverview{
-		TenantKey:         tenantKey,
+		TenantKey:         tk,
 		SubscriptionState: "unknown",
 		Statements:        make([]ServiceBillingStatement, 0),
 		GeneratedAt:       time.Now().UTC(),
@@ -289,7 +290,7 @@ func (p *PostgresMeteringStore) GetTenantBillingOverview(tenantKey string, targe
 
 	subs := p.GetServiceSubscriptions(tenantKey)
 	for _, sub := range subs {
-		stmt, ok := p.GetServiceBillingStatement(tenantKey, sub.ServiceID, targetTime)
+		stmt, ok := p.GetServiceBillingStatement(tenantKey, sub.ServiceID.String(), targetTime)
 		if ok {
 			overview.Statements = append(overview.Statements, stmt)
 		}

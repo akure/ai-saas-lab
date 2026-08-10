@@ -10,7 +10,7 @@ import (
 func TestEventBus_PublishFanOutAndPayloadDelivery(t *testing.T) {
 	bus := NewEventBus()
 
-	const topic = "usage.recorded"
+	const topic = TopicUsageRecorded
 	const payload = "token-used"
 
 	subscribers := []string{"completion", "billing"}
@@ -77,7 +77,7 @@ func TestEventBus_PublishFanOutAndPayloadDelivery(t *testing.T) {
 func TestEventBus_DoesNotDeliverToOtherTopics(t *testing.T) {
 	bus := NewEventBus()
 
-	const topic = "usage.recorded"
+	const topic = TopicUsageRecorded
 	const payload = "token-used"
 
 	received := make(chan string, 1)
@@ -85,7 +85,7 @@ func TestEventBus_DoesNotDeliverToOtherTopics(t *testing.T) {
 		received <- data.(string)
 	})
 
-	bus.Publish("billing.updated", payload)
+	bus.Publish(TopicSubscriptionUpdated, payload)
 
 	select {
 	case item := <-received:

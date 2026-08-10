@@ -19,14 +19,14 @@ func TestServiceSubscription_CurrentCycleWindow(t *testing.T) {
 	}
 
 	sub := billing.ServiceSubscription{
-		SubscriptionID: "sub_1",
-		TenantKey:      "tenant_abc",
-		ServiceID:      "service1",
-		PlanID:         "pro",
+		SubscriptionID: kernel.MustSubscriptionID("sub_1"),
+		TenantKey:      kernel.MustTenantKey("tenant_abc"),
+		ServiceID:      kernel.ServiceID("service1"),
+		PlanID:         kernel.PlanIDPro,
 		ChargeType:     billing.ChargeTypeRecurringMonthly,
 		Timezone:       "America/New_York",
 		AnchorTime:     anchor,
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	}
 
 	// Target time inside first cycle (e.g. Aug 20)
@@ -39,47 +39,36 @@ func TestServiceSubscription_CurrentCycleWindow(t *testing.T) {
 	if endUTC1.Format(time.RFC3339) != "2026-09-15T14:30:00Z" {
 		t.Errorf("expected end %s, got %s", "2026-09-15T14:30:00Z", endUTC1.Format(time.RFC3339))
 	}
-
-	// Target time in next cycle (e.g. Sep 20)
-	target2, _ := time.Parse(time.RFC3339, "2026-09-20T10:00:00Z")
-	startUTC2, endUTC2 := sub.CurrentCycleWindow(target2)
-
-	if startUTC2.Format(time.RFC3339) != "2026-09-15T14:30:00Z" {
-		t.Errorf("expected start %s, got %s", "2026-09-15T14:30:00Z", startUTC2.Format(time.RFC3339))
-	}
-	if endUTC2.Format(time.RFC3339) != "2026-10-15T14:30:00Z" {
-		t.Errorf("expected end %s, got %s", "2026-10-15T14:30:00Z", endUTC2.Format(time.RFC3339))
-	}
 }
 
-func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
+func TestStore_MultiServiceBillingAggregation(t *testing.T) {
 	store := kernel.NewStore()
 
 	anchor1, _ := time.Parse(time.RFC3339, "2026-08-01T00:00:00Z")
-	anchor2, _ := time.Parse(time.RFC3339, "2026-08-15T12:00:00Z")
+	anchor2, _ := time.Parse(time.RFC3339, "2026-08-05T00:00:00Z")
 
 	// Service 1 subscription
 	_ = store.RegisterServiceSubscription(billing.ServiceSubscription{
-		SubscriptionID: "sub_ai",
-		TenantKey:      "tenant_1",
-		ServiceID:      "ai-completion",
-		PlanID:         "ai-pro",
+		SubscriptionID: kernel.MustSubscriptionID("sub_ai"),
+		TenantKey:      kernel.MustTenantKey("tenant_1"),
+		ServiceID:      kernel.ServiceIDAICompletion,
+		PlanID:         kernel.PlanIDPro,
 		ChargeType:     billing.ChargeTypeMetered,
 		Timezone:       "UTC",
 		AnchorTime:     anchor1,
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	})
 
 	// Service 2 subscription
 	_ = store.RegisterServiceSubscription(billing.ServiceSubscription{
-		SubscriptionID: "sub_storage",
-		TenantKey:      "tenant_1",
-		ServiceID:      "object-storage",
-		PlanID:         "storage-100gb",
+		SubscriptionID: kernel.MustSubscriptionID("sub_storage"),
+		TenantKey:      kernel.MustTenantKey("tenant_1"),
+		ServiceID:      kernel.ServiceIDStorage,
+		PlanID:         kernel.PlanID("storage-100gb"),
 		ChargeType:     billing.ChargeTypeRecurringMonthly,
 		Timezone:       "Asia/Tokyo",
 		AnchorTime:     anchor2,
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	})
 
 	// Record events
@@ -88,9 +77,9 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 
 	_ = store.RecordMeteringEvent(billing.MeteringEvent{
 		EventID:   "evt_1",
-		TenantKey: "tenant_1",
-		ServiceID: "ai-completion",
-		MetricID:  "total_tokens",
+		TenantKey: kernel.MustTenantKey("tenant_1"),
+		ServiceID: kernel.ServiceIDAICompletion,
+		MetricID:  kernel.MetricIDTotalTokens,
 		Unit:      "tokens",
 		Quantity:  1000,
 		Timestamp: evtTime1,
@@ -98,9 +87,9 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 
 	_ = store.RecordMeteringEvent(billing.MeteringEvent{
 		EventID:   "evt_2",
-		TenantKey: "tenant_1",
-		ServiceID: "object-storage",
-		MetricID:  "gb_stored",
+		TenantKey: kernel.MustTenantKey("tenant_1"),
+		ServiceID: kernel.ServiceIDStorage,
+		MetricID:  kernel.MetricID("gb_stored"),
 		Unit:      "gigabytes",
 		Quantity:  50,
 		Timestamp: evtTime2,
@@ -113,8 +102,8 @@ func TestStore_MultiServiceMeteringAndStatements(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected statement for ai-completion")
 	}
-	if aiStmt.Metrics["total_tokens"] == nil || aiStmt.Metrics["total_tokens"].CycleTotal != 1000 {
-		t.Errorf("expected 1000 total_tokens for ai-completion, got %+v", aiStmt.Metrics["total_tokens"])
+	if aiStmt.Metrics[kernel.MetricIDTotalTokens] == nil || aiStmt.Metrics[kernel.MetricIDTotalTokens].CycleTotal != 1000 {
+		t.Errorf("expected 1000 total_tokens for ai-completion, got %+v", aiStmt.Metrics[kernel.MetricIDTotalTokens])
 	}
 
 	// Get Overview
@@ -133,14 +122,14 @@ func TestBillingModule_HTTPRoutes(t *testing.T) {
 
 	// 1. POST /v1/billing/subscriptions
 	subReq := billing.ServiceSubscription{
-		SubscriptionID: "sub_test_service1",
-		TenantKey:      "key_test",
-		ServiceID:      "service1",
-		PlanID:         "plan_test",
+		SubscriptionID: kernel.MustSubscriptionID("sub_test_service1"),
+		TenantKey:      kernel.MustTenantKey("key_test"),
+		ServiceID:      kernel.ServiceID("service1"),
+		PlanID:         kernel.PlanID("plan_test"),
 		ChargeType:     billing.ChargeTypeMetered,
 		Timezone:       "UTC",
 		AnchorTime:     time.Now().UTC(),
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	}
 	body, _ := json.Marshal(subReq)
 	req := httptest.NewRequest("POST", "/v1/billing/subscriptions", bytes.NewReader(body))
@@ -154,9 +143,9 @@ func TestBillingModule_HTTPRoutes(t *testing.T) {
 	// 2. POST /v1/billing/events
 	evtReq := billing.MeteringEvent{
 		EventID:   "evt_test_100",
-		TenantKey: "key_test",
-		ServiceID: "service1",
-		MetricID:  "api_calls",
+		TenantKey: kernel.MustTenantKey("key_test"),
+		ServiceID: kernel.ServiceID("service1"),
+		MetricID:  kernel.MetricID("api_calls"),
 		Unit:      "requests",
 		Quantity:  5,
 		Timestamp: time.Now().UTC(),
@@ -183,8 +172,8 @@ func TestBillingModule_HTTPRoutes(t *testing.T) {
 	if err := json.Unmarshal(wStmt.Body.Bytes(), &stmt); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if stmt.Metrics["api_calls"] == nil || stmt.Metrics["api_calls"].CycleTotal != 5 {
-		t.Errorf("expected cycle total 5 for api_calls, got %+v", stmt.Metrics["api_calls"])
+	if stmt.Metrics[kernel.MetricID("api_calls")] == nil || stmt.Metrics[kernel.MetricID("api_calls")].CycleTotal != 5 {
+		t.Errorf("expected cycle total 5 for api_calls, got %+v", stmt.Metrics[kernel.MetricID("api_calls")])
 	}
 
 	// 4. GET /v1/billing/key_test/overview

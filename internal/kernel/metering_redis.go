@@ -237,7 +237,7 @@ func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID str
 		Timezone:       sub.Timezone,
 		CycleStartUTC:  startUTC,
 		CycleEndUTC:    endUTC,
-		Metrics:        make(map[string]*MetricSummary),
+		Metrics:        make(map[MetricID]*MetricSummary),
 		GeneratedAt:    time.Now().UTC(),
 	}
 
@@ -271,8 +271,9 @@ func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID str
 
 // GetTenantBillingOverview iterates all subscriptions and aggregates per-service.
 func (r *RedisMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+	tk, _ := NewTenantKey(tenantKey)
 	overview := TenantBillingOverview{
-		TenantKey:         tenantKey,
+		TenantKey:         tk,
 		SubscriptionState: "unknown",
 		Statements:        make([]ServiceBillingStatement, 0),
 		GeneratedAt:       time.Now().UTC(),
@@ -280,7 +281,7 @@ func (r *RedisMeteringStore) GetTenantBillingOverview(tenantKey string, targetTi
 
 	subs := r.GetServiceSubscriptions(tenantKey)
 	for _, sub := range subs {
-		stmt, ok := r.GetServiceBillingStatement(tenantKey, sub.ServiceID, targetTime)
+		stmt, ok := r.GetServiceBillingStatement(tenantKey, sub.ServiceID.String(), targetTime)
 		if ok {
 			overview.Statements = append(overview.Statements, stmt)
 		}

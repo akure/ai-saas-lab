@@ -7,9 +7,9 @@ import (
 
 // APIKeyRecord is the in-memory representation of a key used by the auth layer.
 type APIKeyRecord struct {
-	Key    string
-	Plan   string
-	Active bool
+	Key    string `json:"key"`
+	Plan   PlanID `json:"plan"`
+	Active bool   `json:"active"`
 }
 
 // Store is thread-safe, multi-tenant storage supporting API keys, subscriptions,
@@ -66,7 +66,7 @@ func (s *Store) MeteringChainRef() *MeteringChain {
 	return s.meteringChain
 }
 
-func (s *Store) SeedAPIKey(key, plan string) {
+func (s *Store) SeedAPIKey(key string, plan PlanID) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if key == "" {
@@ -161,7 +161,7 @@ func (s *Store) GetServiceSubscriptions(tenantKey string) []ServiceSubscription 
 // RecordMeteringEvent delegates to the MeteringChain and maintains the legacy
 // usage counter for the quota policy.
 func (s *Store) RecordMeteringEvent(event MeteringEvent) error {
-	if event.TenantKey == "" {
+	if event.TenantKey.IsZero() {
 		return nil
 	}
 	if event.Timestamp.IsZero() {
@@ -174,9 +174,9 @@ func (s *Store) RecordMeteringEvent(event MeteringEvent) error {
 	}
 
 	// Maintain legacy usage counter regardless of chain result.
-	if event.MetricID == "total_tokens" || event.MetricID == "tokens" {
+	if event.MetricID == MetricIDTotalTokens || event.MetricID == MetricIDTokens {
 		s.mu.Lock()
-		s.usage[event.TenantKey] += int(event.Quantity)
+		s.usage[event.TenantKey.String()] += int(event.Quantity)
 		s.mu.Unlock()
 	}
 	return chainErr
@@ -199,8 +199,9 @@ func (s *Store) GetTenantBillingOverview(tenantKey string, targetTime time.Time)
 		overview.SubscriptionState = string(s.SubscriptionState(tenantKey))
 		return overview
 	}
+	tk, _ := NewTenantKey(tenantKey)
 	return TenantBillingOverview{
-		TenantKey:         tenantKey,
+		TenantKey:         tk,
 		SubscriptionState: string(s.SubscriptionState(tenantKey)),
 		Statements:        make([]ServiceBillingStatement, 0),
 		GeneratedAt:       time.Now().UTC(),

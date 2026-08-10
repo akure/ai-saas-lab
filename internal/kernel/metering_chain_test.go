@@ -62,7 +62,7 @@ func (f *fakeBackend) GetServiceSubscriptions(tenantKey string) []kernel.Service
 	defer f.mu.Unlock()
 	var res []kernel.ServiceSubscription
 	for _, s := range f.subs {
-		if s.TenantKey == tenantKey {
+		if s.TenantKey.String() == tenantKey {
 			res = append(res, s)
 		}
 	}
@@ -73,11 +73,12 @@ func (f *fakeBackend) GetServiceBillingStatement(tenantKey, serviceID string, _ 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, s := range f.subs {
-		if s.TenantKey == tenantKey && s.ServiceID == serviceID {
+		if s.TenantKey.String() == tenantKey && s.ServiceID.String() == serviceID {
+			tk, _ := kernel.NewTenantKey(tenantKey)
 			return kernel.ServiceBillingStatement{
-				TenantKey: tenantKey,
-				ServiceID: serviceID,
-				Metrics:   make(map[string]*kernel.MetricSummary),
+				TenantKey: tk,
+				ServiceID: kernel.ServiceID(serviceID),
+				Metrics:   make(map[kernel.MetricID]*kernel.MetricSummary),
 			}, true
 		}
 	}
@@ -87,17 +88,18 @@ func (f *fakeBackend) GetServiceBillingStatement(tenantKey, serviceID string, _ 
 func (f *fakeBackend) GetTenantBillingOverview(tenantKey string, targetTime time.Time) kernel.TenantBillingOverview {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	tk, _ := kernel.NewTenantKey(tenantKey)
 	overview := kernel.TenantBillingOverview{
-		TenantKey:   tenantKey,
+		TenantKey:   tk,
 		Statements:  make([]kernel.ServiceBillingStatement, 0),
 		GeneratedAt: time.Now().UTC(),
 	}
 	for _, s := range f.subs {
-		if s.TenantKey == tenantKey {
+		if s.TenantKey.String() == tenantKey {
 			overview.Statements = append(overview.Statements, kernel.ServiceBillingStatement{
-				TenantKey: tenantKey,
+				TenantKey: tk,
 				ServiceID: s.ServiceID,
-				Metrics:   make(map[string]*kernel.MetricSummary),
+				Metrics:   make(map[kernel.MetricID]*kernel.MetricSummary),
 			})
 		}
 	}
@@ -148,9 +150,9 @@ func TestChain_FanOutWrites(t *testing.T) {
 
 	chain.RecordMeteringEvent(kernel.MeteringEvent{
 		EventID:   "evt-fanout-1",
-		TenantKey: "tenant_a",
-		ServiceID: "svc1",
-		MetricID:  "tokens",
+		TenantKey: kernel.MustTenantKey("tenant_a"),
+		ServiceID: kernel.ServiceID("svc1"),
+		MetricID:  kernel.MetricIDTokens,
 		Unit:      "tokens",
 		Quantity:  100,
 		Timestamp: time.Now().UTC(),
@@ -181,14 +183,14 @@ func TestChain_CascadeReads_HitsL1(t *testing.T) {
 
 	// Register subscription only in L1.
 	sub := kernel.ServiceSubscription{
-		SubscriptionID: "sub_cascade_1",
-		TenantKey:      "tenant_cascade",
-		ServiceID:      "svc_cascade",
-		PlanID:         "plan_a",
+		SubscriptionID: kernel.MustSubscriptionID("sub_cascade_1"),
+		TenantKey:      kernel.MustTenantKey("tenant_cascade"),
+		ServiceID:      kernel.ServiceID("svc_cascade"),
+		PlanID:         kernel.PlanIDPro,
 		ChargeType:     kernel.ChargeTypeMetered,
 		Timezone:       "UTC",
 		AnchorTime:     time.Now().UTC(),
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	}
 	_ = l1.RegisterServiceSubscription(sub)
 	// Do NOT register in l2 — cascade should return from L1.
@@ -210,14 +212,14 @@ func TestChain_CascadeReads_FallsToL2(t *testing.T) {
 
 	// Register only in L2.
 	sub := kernel.ServiceSubscription{
-		SubscriptionID: "sub_fallthrough",
-		TenantKey:      "tenant_fallthrough",
-		ServiceID:      "svc_fallthrough",
-		PlanID:         "plan_b",
+		SubscriptionID: kernel.MustSubscriptionID("sub_fallthrough"),
+		TenantKey:      kernel.MustTenantKey("tenant_fallthrough"),
+		ServiceID:      kernel.ServiceID("svc_fallthrough"),
+		PlanID:         kernel.PlanIDPro,
 		ChargeType:     kernel.ChargeTypeMetered,
 		Timezone:       "UTC",
 		AnchorTime:     time.Now().UTC(),
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	}
 	_ = l2.RegisterServiceSubscription(sub)
 
@@ -259,9 +261,9 @@ func TestChain_CircuitBreakerTrips(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		chain.RecordMeteringEvent(kernel.MeteringEvent{
 			EventID:   "evt-cb-" + string(rune('a'+i)),
-			TenantKey: "tenant_cb",
-			ServiceID: "svc_cb",
-			MetricID:  "tokens",
+			TenantKey: kernel.MustTenantKey("tenant_cb"),
+			ServiceID: kernel.ServiceID("svc_cb"),
+			MetricID:  kernel.MetricIDTokens,
 			Unit:      "tokens",
 			Quantity:  1,
 			Timestamp: time.Now().UTC(),
@@ -339,9 +341,9 @@ func TestChain_DedupRejectsDuplicate(t *testing.T) {
 
 	evt := kernel.MeteringEvent{
 		EventID:   "evt-dedup-unique-123",
-		TenantKey: "tenant_dedup",
-		ServiceID: "svc_dedup",
-		MetricID:  "tokens",
+		TenantKey: kernel.MustTenantKey("tenant_dedup"),
+		ServiceID: kernel.ServiceID("svc_dedup"),
+		MetricID:  kernel.MetricIDTokens,
 		Unit:      "tokens",
 		Quantity:  50,
 		Timestamp: time.Now().UTC(),
@@ -368,9 +370,9 @@ func TestChain_DedupAllowsEmptyEventID(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		chain.RecordMeteringEvent(kernel.MeteringEvent{
 			EventID:   "", // no ID — always allowed through
-			TenantKey: "tenant_nodup",
-			ServiceID: "svc_nodup",
-			MetricID:  "requests",
+			TenantKey: kernel.MustTenantKey("tenant_nodup"),
+			ServiceID: kernel.ServiceID("svc_nodup"),
+			MetricID:  kernel.MetricIDRequests,
 			Unit:      "req",
 			Quantity:  1,
 			Timestamp: time.Now().UTC(),
@@ -505,14 +507,14 @@ func TestChain_SubscriptionFanOut(t *testing.T) {
 	chain := buildTestChain(t, l1, l2, l3)
 
 	sub := kernel.ServiceSubscription{
-		SubscriptionID: "sub_fanout",
-		TenantKey:      "tenant_sub_fanout",
-		ServiceID:      "svc_sub_fanout",
-		PlanID:         "plan_pro",
+		SubscriptionID: kernel.MustSubscriptionID("sub_fanout"),
+		TenantKey:      kernel.MustTenantKey("tenant_sub_fanout"),
+		ServiceID:      kernel.ServiceID("svc_sub_fanout"),
+		PlanID:         kernel.PlanIDPro,
 		ChargeType:     kernel.ChargeTypeRecurringMonthly,
 		Timezone:       "UTC",
 		AnchorTime:     time.Now().UTC(),
-		Status:         "active",
+		Status:         kernel.SubscriptionStatusActive,
 	}
 
 	if err := chain.RegisterServiceSubscription(sub); err != nil {

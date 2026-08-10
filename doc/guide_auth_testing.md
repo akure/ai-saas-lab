@@ -143,4 +143,4 @@ $resp.Content
 - The completion endpoint is `POST /v1/chat/completions`.
 - If you are testing locally and want a quick seeded key, the app also seeds demo keys during setup for local development flows.
 
-If you want, I can also add a small section with example `curl` commands for revoking keys or testing the billing/quota layer next.
+ 

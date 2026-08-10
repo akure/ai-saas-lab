@@ -10,7 +10,7 @@ import (
 
 func TestService_Authenticate_ValidKey(t *testing.T) {
 	store := kernel.NewStore()
-	store.SeedAPIKey("valid-key", "pro")
+	store.SeedAPIKey("valid-key", kernel.PlanIDPro)
 
 	service := NewService(store)
 	if err := service.Authenticate("valid-key"); err != nil {
@@ -40,7 +40,7 @@ func TestService_Authenticate_RejectsUnknownKey(t *testing.T) {
 
 func TestService_Authenticate_RejectsInactiveKey(t *testing.T) {
 	store := kernel.NewStore()
-	store.SeedAPIKey("inactive", "basic")
+	store.SeedAPIKey("inactive", kernel.PlanID("basic"))
 	store.RevokeAPIKey("inactive")
 
 	service := NewService(store)
@@ -65,7 +65,7 @@ func TestService_RegisterAPIKey_RejectsEmptyValues(t *testing.T) {
 	store := kernel.NewStore()
 	service := NewService(store)
 
-	if err := service.RegisterAPIKey("", "pro"); !errors.Is(err, ErrInvalidAPIKey) {
+	if err := service.RegisterAPIKey("", kernel.PlanIDPro); !errors.Is(err, ErrInvalidAPIKey) {
 		t.Fatalf("expected ErrInvalidAPIKey for empty key, got %v", err)
 	}
 	if err := service.RegisterAPIKey("key", ""); !errors.Is(err, ErrInvalidAPIKey) {
@@ -85,7 +85,7 @@ func TestService_RevokeAPIKey_UnknownKey(t *testing.T) {
 
 func TestService_RevokeAPIKey_RevokesExistingKey(t *testing.T) {
 	store := kernel.NewStore()
-	store.SeedAPIKey("to-revoke", "pro")
+	store.SeedAPIKey("to-revoke", kernel.PlanIDPro)
 	service := NewService(store)
 
 	if err := service.RevokeAPIKey("to-revoke"); err != nil {
@@ -109,7 +109,7 @@ func TestModule_Init_RegistersPolicy(t *testing.T) {
 		t.Fatal("expected policy to reject an unknown key")
 	}
 
-	app.Store.SeedAPIKey("valid-key", "pro")
+	app.Store.SeedAPIKey("valid-key", kernel.PlanIDPro)
 	if err := app.CheckPolicies(ctx, "valid-key", "valid-api-key"); err != nil {
 		t.Fatalf("expected valid key to pass policy, got %v", err)
 	}

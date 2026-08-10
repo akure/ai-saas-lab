@@ -62,7 +62,7 @@ func (m *Module) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Plan string `json:"plan"`
+		Plan kernel.PlanID `json:"plan"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -107,36 +107,34 @@ func (s *Service) Authenticate(apiKey string) error {
 	if !record.Active {
 		return ErrInactiveAPIKey
 	}
-	if strings.TrimSpace(record.Plan) == "" {
+	if record.Plan.IsZero() {
 		return ErrMissingPlan
 	}
 	return nil
 }
 
-func (s *Service) RegisterAPIKey(apiKey, plan string) error {
+func (s *Service) RegisterAPIKey(apiKey string, plan kernel.PlanID) error {
 	if s.store == nil {
 		return ErrInvalidAPIKey
 	}
 	trimmedKey := strings.TrimSpace(apiKey)
-	trimmedPlan := strings.TrimSpace(plan)
-	if trimmedKey == "" || trimmedPlan == "" {
+	if trimmedKey == "" || plan.IsZero() {
 		return ErrInvalidAPIKey
 	}
-	s.store.SeedAPIKey(trimmedKey, trimmedPlan)
+	s.store.SeedAPIKey(trimmedKey, plan)
 	return nil
 }
 
-func (s *Service) CreateAPIKey(plan string) (string, error) {
+func (s *Service) CreateAPIKey(plan kernel.PlanID) (string, error) {
 	if s.store == nil {
 		return "", ErrInvalidAPIKey
 	}
-	trimmedPlan := strings.TrimSpace(plan)
-	if trimmedPlan == "" {
+	if plan.IsZero() {
 		return "", ErrInvalidAPIKey
 	}
 
-	key := "demo-" + trimmedPlan + "-" + randomSuffix(6)
-	if err := s.RegisterAPIKey(key, trimmedPlan); err != nil {
+	key := "demo-" + plan.String() + "-" + randomSuffix(6)
+	if err := s.RegisterAPIKey(key, plan); err != nil {
 		return "", err
 	}
 	return key, nil
@@ -147,12 +145,12 @@ func (m *Module) seedDemoKeys() {
 		return
 	}
 	for _, item := range []struct {
-		plan string
+		plan kernel.PlanID
 		key  string
 	}{
-		{plan: "free", key: "demo-free-key"},
-		{plan: "basic", key: "demo-basic-key"},
-		{plan: "pro", key: "demo-pro-key"},
+		{plan: kernel.PlanIDFree, key: "demo-free-key"},
+		{plan: kernel.PlanID("basic"), key: "demo-basic-key"},
+		{plan: kernel.PlanIDPro, key: "demo-pro-key"},
 	} {
 		_ = m.service.RegisterAPIKey(item.key, item.plan)
 	}

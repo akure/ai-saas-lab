@@ -13,6 +13,17 @@ var (
 	ErrProviderTimeout     = errors.New("upstream provider request timed out")
 )
 
+// MessageRole defines standard role types for completion message payloads.
+type MessageRole string
+
+const (
+	RoleSystem    MessageRole = "system"
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+)
+
+func (r MessageRole) String() string { return string(r) }
+
 // ChatRequest represents the unified request shape sent by callers.
 type ChatRequest struct {
 	APIKey         string        `json:"api_key"`
@@ -32,9 +43,9 @@ type ChatRequest struct {
 
 // ChatMessage is a single message item inside a chat conversation thread.
 type ChatMessage struct {
-	Role      string    `json:"role"` // system, user, assistant
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp,omitempty"`
+	Role      MessageRole `json:"role"` // system, user, assistant
+	Content   string      `json:"content"`
+	Timestamp time.Time   `json:"timestamp,omitempty"`
 }
 
 // ChatResponse is the OpenAI-compatible standard completion response.
@@ -93,10 +104,10 @@ type Persona struct {
 
 // ProviderConfig configures an AI completion service provider.
 type ProviderConfig struct {
-	Name       string
-	BaseURL    string
-	APIKey     string
+	Name         string
+	BaseURL      string
+	APIKey       string
 	DefaultModel string
-	Timeout    time.Duration
-	Headers    map[string]string
+	Timeout      time.Duration
+	Headers      map[string]string
 }

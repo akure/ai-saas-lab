@@ -337,8 +337,9 @@ func (c *MeteringChain) GetTenantBillingOverview(tenantKey string, targetTime ti
 		}
 	}
 
+	tk, _ := NewTenantKey(tenantKey)
 	return TenantBillingOverview{
-		TenantKey:         tenantKey,
+		TenantKey:         tk,
 		SubscriptionState: "unknown",
 		Statements:        make([]ServiceBillingStatement, 0),
 		GeneratedAt:       time.Now().UTC(),

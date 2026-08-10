@@ -55,23 +55,23 @@ func (m *Module) Init(app *kernel.App) error {
 		if !hasAISub {
 			// Ignore error — L1 memory write never fails; slow backends handled by chain.
 			_ = app.Store.RegisterServiceSubscription(ServiceSubscription{
-				SubscriptionID: "sub_ai_" + rec.APIKey,
-				TenantKey:      rec.APIKey,
-				ServiceID:      "ai-completion",
-				PlanID:         "default-ai-plan",
+				SubscriptionID: kernel.MustSubscriptionID("sub_ai_" + rec.APIKey),
+				TenantKey:      kernel.MustTenantKey(rec.APIKey),
+				ServiceID:      kernel.ServiceIDAICompletion,
+				PlanID:         kernel.PlanID("default-ai-plan"),
 				ChargeType:     ChargeTypeMetered,
 				Timezone:       "UTC",
 				AnchorTime:     time.Now().UTC(),
-				Status:         "active",
+				Status:         kernel.SubscriptionStatusActive,
 			})
 		}
 
 		// Ignore L2/L3 backend errors on hot path — chain routes to WAL automatically.
 		_ = app.Store.RecordMeteringEvent(MeteringEvent{
 			EventID:   "evt_completion_" + time.Now().UTC().Format("20060102150405.000"),
-			TenantKey: rec.APIKey,
-			ServiceID: "ai-completion",
-			MetricID:  "total_tokens",
+			TenantKey: kernel.MustTenantKey(rec.APIKey),
+			ServiceID: kernel.ServiceIDAICompletion,
+			MetricID:  kernel.MetricIDTotalTokens,
 			Unit:      "tokens",
 			Quantity:  int64(rec.Tokens),
 			Timestamp: time.Now().UTC(),
@@ -138,12 +138,12 @@ func (m *Module) handleRegisterSubscription(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "invalid subscription request body", http.StatusBadRequest)
 		return
 	}
-	if sub.TenantKey == "" || sub.ServiceID == "" {
+	if sub.TenantKey.IsZero() || sub.ServiceID.IsZero() {
 		http.Error(w, "tenant_key and service_id are required", http.StatusBadRequest)
 		return
 	}
-	if sub.SubscriptionID == "" {
-		sub.SubscriptionID = "sub_" + sub.ServiceID + "_" + sub.TenantKey
+	if sub.SubscriptionID.IsZero() {
+		sub.SubscriptionID = kernel.MustSubscriptionID("sub_" + sub.ServiceID.String() + "_" + sub.TenantKey.String())
 	}
 	if err := m.app.Store.RegisterServiceSubscription(sub); err != nil {
 		http.Error(w, "failed to register subscription: "+err.Error(), http.StatusInternalServerError)
@@ -152,7 +152,7 @@ func (m *Module) handleRegisterSubscription(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"subscription_id": sub.SubscriptionID,
+		"subscription_id": sub.SubscriptionID.String(),
 		"status":          "registered",
 	})
 }

@@ -7,20 +7,20 @@ import "sync"
 // BillingModule subscribes to it. Neither package name appears in the other.
 type EventBus struct {
 	mu   sync.RWMutex
-	subs map[string][]func(any)
+	subs map[EventTopic][]func(any)
 }
 
 func NewEventBus() *EventBus {
-	return &EventBus{subs: make(map[string][]func(any))}
+	return &EventBus{subs: make(map[EventTopic][]func(any))}
 }
 
-func (b *EventBus) Subscribe(topic string, fn func(any)) {
+func (b *EventBus) Subscribe(topic EventTopic, fn func(any)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.subs[topic] = append(b.subs[topic], fn)
 }
 
-func (b *EventBus) Publish(topic string, payload any) {
+func (b *EventBus) Publish(topic EventTopic, payload any) {
 	b.mu.RLock()
 	fns := make([]func(any), len(b.subs[topic]))
 	copy(fns, b.subs[topic])
