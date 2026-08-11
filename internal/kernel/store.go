@@ -1,30 +1,11 @@
 package kernel
 
 import (
-	"sync"
 	"time"
 )
 
-// APIKeyRecord is the in-memory representation of a key used by the auth layer.
-type APIKeyRecord struct {
-	Key    string `json:"key"`
-	Plan   PlanID `json:"plan"`
-	Active bool   `json:"active"`
-}
-
-// Store is thread-safe, multi-tenant storage supporting API keys, subscriptions,
-// and service-specific metering events.
-//
-// Metering operations (subscriptions, events, billing statements) are delegated
-// to the MeteringChain for multi-backend fan-out/cascade. The Store retains
-// ownership of non-metering concerns (API keys, legacy usage counters,
-// subscription FSM state).
+// Store is thread-safe metering storage delegating telemetry operations to MeteringChain.
 type Store struct {
-	mu            sync.RWMutex
-	apiKeys       map[string]APIKeyRecord
-	usage         map[string]int   // key -> tokens used today (legacy quota counter)
-	subscriptions map[string]State // key -> overall subscription state (FSM)
-
 	// meteringChain is the multi-backend storage orchestrator.
 	// Set by App.NewApp() after chain construction. If nil, metering
 	// methods are no-ops (safe for tests that don't initialize the chain).
@@ -32,11 +13,7 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	s := &Store{
-		apiKeys:       make(map[string]APIKeyRecord),
-		usage:         make(map[string]int),
-		subscriptions: make(map[string]State),
-	}
+	s := &Store{}
 	// Auto-wire a WAL-disabled, memory-only chain so the Store is
 	// immediately usable without an App (e.g. in tests and migrations).
 	// App.NewApp() replaces this with the config-driven chain.
@@ -66,79 +43,8 @@ func (s *Store) MeteringChainRef() *MeteringChain {
 	return s.meteringChain
 }
 
-func (s *Store) SeedAPIKey(key string, plan PlanID) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if key == "" {
-		return
-	}
-	s.apiKeys[key] = APIKeyRecord{Key: key, Plan: plan, Active: true}
-}
-
-func (s *Store) IsValidAPIKey(key string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rec, ok := s.apiKeys[key]
-	return ok && rec.Active
-}
-
-func (s *Store) ActivateAPIKey(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if rec, ok := s.apiKeys[key]; ok {
-		rec.Active = true
-		s.apiKeys[key] = rec
-	}
-}
-
-func (s *Store) RevokeAPIKey(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if rec, ok := s.apiKeys[key]; ok {
-		rec.Active = false
-		s.apiKeys[key] = rec
-	}
-}
-
-func (s *Store) APIKeyInfo(key string) (APIKeyRecord, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	rec, ok := s.apiKeys[key]
-	return rec, ok
-}
-
-func (s *Store) AddUsage(key string, tokens int) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.usage[key] += tokens
-	return s.usage[key]
-}
-
-func (s *Store) UsageFor(key string) int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.usage[key]
-}
-
-func (s *Store) SetSubscriptionState(key string, st State) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.subscriptions[key] = st
-}
-
-func (s *Store) SubscriptionState(key string) State {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if st, ok := s.subscriptions[key]; ok {
-		return st
-	}
-	return "unknown"
-}
-
 // ---------------------------------------------------------------------------
 // Metering delegates — forward all metering operations to the MeteringChain.
-// These methods maintain full backward compatibility: any code calling
-// app.Store.RecordMeteringEvent(...) continues to work unchanged.
 // ---------------------------------------------------------------------------
 
 // RegisterServiceSubscription delegates to the MeteringChain for multi-backend
@@ -158,8 +64,7 @@ func (s *Store) GetServiceSubscriptions(tenantKey string) []ServiceSubscription 
 	return nil
 }
 
-// RecordMeteringEvent delegates to the MeteringChain and maintains the legacy
-// usage counter for the quota policy.
+// RecordMeteringEvent delegates cleanly to the MeteringChain.
 func (s *Store) RecordMeteringEvent(event MeteringEvent) error {
 	if event.TenantKey.IsZero() {
 		return nil
@@ -168,42 +73,29 @@ func (s *Store) RecordMeteringEvent(event MeteringEvent) error {
 		event.Timestamp = time.Now().UTC()
 	}
 
-	var chainErr error
 	if s.meteringChain != nil {
-		chainErr = s.meteringChain.RecordMeteringEvent(event)
+		return s.meteringChain.RecordMeteringEvent(event)
 	}
-
-	// Maintain legacy usage counter regardless of chain result.
-	if event.MetricID == MetricIDTotalTokens || event.MetricID == MetricIDTokens {
-		s.mu.Lock()
-		s.usage[event.TenantKey.String()] += int(event.Quantity)
-		s.mu.Unlock()
-	}
-	return chainErr
+	return nil
 }
 
-// GetServiceBillingStatement delegates to the MeteringChain for priority-cascaded reads.
-func (s *Store) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
+// GetServiceUsageStatement delegates to the MeteringChain for priority-cascaded reads.
+func (s *Store) GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool) {
 	if s.meteringChain != nil {
-		return s.meteringChain.GetServiceBillingStatement(tenantKey, serviceID, targetTime)
+		return s.meteringChain.GetServiceUsageStatement(tenantKey, serviceID, targetTime)
 	}
-	return ServiceBillingStatement{}, false
+	return ServiceUsageStatement{}, false
 }
 
-// GetTenantBillingOverview delegates to the MeteringChain and enriches the
-// result with the Store's subscription FSM state.
-func (s *Store) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+// GetTenantUsageOverview delegates to the MeteringChain.
+func (s *Store) GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview {
 	if s.meteringChain != nil {
-		overview := s.meteringChain.GetTenantBillingOverview(tenantKey, targetTime)
-		// Enrich with the subscription FSM state from Store.
-		overview.SubscriptionState = string(s.SubscriptionState(tenantKey))
-		return overview
+		return s.meteringChain.GetTenantUsageOverview(tenantKey, targetTime)
 	}
 	tk, _ := NewTenantKey(tenantKey)
-	return TenantBillingOverview{
-		TenantKey:         tk,
-		SubscriptionState: string(s.SubscriptionState(tenantKey)),
-		Statements:        make([]ServiceBillingStatement, 0),
-		GeneratedAt:       time.Now().UTC(),
+	return TenantUsageOverview{
+		TenantKey:   tk,
+		Statements:  make([]ServiceUsageStatement, 0),
+		GeneratedAt: time.Now().UTC(),
 	}
 }

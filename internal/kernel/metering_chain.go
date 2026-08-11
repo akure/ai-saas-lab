@@ -281,9 +281,9 @@ func (c *MeteringChain) GetServiceSubscriptions(tenantKey string) []ServiceSubsc
 	return nil
 }
 
-// GetServiceBillingStatement implements MeteringStore. Cascades through
+// GetServiceUsageStatement implements MeteringStore. Cascades through
 // backends by priority until one returns a valid statement.
-func (c *MeteringChain) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
+func (c *MeteringChain) GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool) {
 	c.mu.RLock()
 	backends := make([]MeteringStore, len(c.backends))
 	copy(backends, c.backends)
@@ -298,7 +298,7 @@ func (c *MeteringChain) GetServiceBillingStatement(tenantKey, serviceID string, 
 			continue
 		}
 
-		stmt, ok := b.GetServiceBillingStatement(tenantKey, serviceID, targetTime)
+		stmt, ok := b.GetServiceUsageStatement(tenantKey, serviceID, targetTime)
 		if ok {
 			if hasCB {
 				cb.RecordSuccess()
@@ -306,12 +306,12 @@ func (c *MeteringChain) GetServiceBillingStatement(tenantKey, serviceID string, 
 			return stmt, true
 		}
 	}
-	return ServiceBillingStatement{}, false
+	return ServiceUsageStatement{}, false
 }
 
-// GetTenantBillingOverview implements MeteringStore. Cascades through
+// GetTenantUsageOverview implements MeteringStore. Cascades through
 // backends by priority until one returns an overview with statements.
-func (c *MeteringChain) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+func (c *MeteringChain) GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview {
 	c.mu.RLock()
 	backends := make([]MeteringStore, len(c.backends))
 	copy(backends, c.backends)
@@ -326,7 +326,7 @@ func (c *MeteringChain) GetTenantBillingOverview(tenantKey string, targetTime ti
 			continue
 		}
 
-		overview := b.GetTenantBillingOverview(tenantKey, targetTime)
+		overview := b.GetTenantUsageOverview(tenantKey, targetTime)
 		// Return if this backend has data (statements present or
 		// it's the L1 memory store which always has the authoritative view).
 		if len(overview.Statements) > 0 || b.Priority() == 0 {
@@ -338,11 +338,10 @@ func (c *MeteringChain) GetTenantBillingOverview(tenantKey string, targetTime ti
 	}
 
 	tk, _ := NewTenantKey(tenantKey)
-	return TenantBillingOverview{
-		TenantKey:         tk,
-		SubscriptionState: "unknown",
-		Statements:        make([]ServiceBillingStatement, 0),
-		GeneratedAt:       time.Now().UTC(),
+	return TenantUsageOverview{
+		TenantKey:   tk,
+		Statements:  make([]ServiceUsageStatement, 0),
+		GeneratedAt: time.Now().UTC(),
 	}
 }
 

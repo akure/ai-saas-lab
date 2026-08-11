@@ -206,11 +206,11 @@ func (r *RedisMeteringStore) GetServiceSubscriptions(tenantKey string) []Service
 	return subs
 }
 
-// GetServiceBillingStatement loads a subscription from Redis, computes the cycle
+// GetServiceUsageStatement loads a subscription from Redis, computes the cycle
 // window, queries the sorted set with ZRANGEBYSCORE, and aggregates in memory.
-func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
+func (r *RedisMeteringStore) GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool) {
 	if !r.healthy.Load() {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -220,15 +220,15 @@ func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID str
 	subKey := fmt.Sprintf(redisSubKeyFmt, tenantKey)
 	subData, err := r.client.HGet(ctx, subKey, serviceID).Bytes()
 	if err != nil {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 	var sub ServiceSubscription
 	if err := json.Unmarshal(subData, &sub); err != nil {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 
 	startUTC, endUTC := sub.CurrentCycleWindow(targetTime)
-	stmt := ServiceBillingStatement{
+	stmt := ServiceUsageStatement{
 		SubscriptionID: sub.SubscriptionID,
 		TenantKey:      sub.TenantKey,
 		ServiceID:      sub.ServiceID,
@@ -269,19 +269,18 @@ func (r *RedisMeteringStore) GetServiceBillingStatement(tenantKey, serviceID str
 	return stmt, true
 }
 
-// GetTenantBillingOverview iterates all subscriptions and aggregates per-service.
-func (r *RedisMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+// GetTenantUsageOverview iterates all subscriptions and aggregates per-service.
+func (r *RedisMeteringStore) GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview {
 	tk, _ := NewTenantKey(tenantKey)
-	overview := TenantBillingOverview{
-		TenantKey:         tk,
-		SubscriptionState: "unknown",
-		Statements:        make([]ServiceBillingStatement, 0),
-		GeneratedAt:       time.Now().UTC(),
+	overview := TenantUsageOverview{
+		TenantKey:   tk,
+		Statements:  make([]ServiceUsageStatement, 0),
+		GeneratedAt: time.Now().UTC(),
 	}
 
 	subs := r.GetServiceSubscriptions(tenantKey)
 	for _, sub := range subs {
-		stmt, ok := r.GetServiceBillingStatement(tenantKey, sub.ServiceID.String(), targetTime)
+		stmt, ok := r.GetServiceUsageStatement(tenantKey, sub.ServiceID.String(), targetTime)
 		if ok {
 			overview.Statements = append(overview.Statements, stmt)
 		}

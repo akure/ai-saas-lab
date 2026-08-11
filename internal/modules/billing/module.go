@@ -5,23 +5,56 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"aisaaslab/internal/kernel"
 	"aisaaslab/internal/modules/completion"
 )
 
+// ---------------------------------------------------------------------------
+// Billing Module (App Integration Adapter)
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Billing Module
+// ---------------------------------------------------------------------------
+
 type Module struct {
-	app *kernel.App
-	fsm *kernel.StateMachine[kernel.State, string, string]
+	app           *kernel.App
+	fsm           *kernel.StateMachine[kernel.State, string, string]
+	mu            sync.RWMutex
+	subscriptions map[string]kernel.State // tenant key -> FSM subscription state
 }
 
-func New() *Module { return &Module{} }
+func New() *Module {
+	return &Module{
+		subscriptions: make(map[string]kernel.State),
+	}
+}
 
 func (m *Module) Name() string { return "billing" }
 
+func (m *Module) SetSubscriptionState(key string, st kernel.State) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.subscriptions[key] = st
+}
+
+func (m *Module) SubscriptionState(key string) kernel.State {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if st, ok := m.subscriptions[key]; ok {
+		return st
+	}
+	return "unknown"
+}
+
 func (m *Module) Init(app *kernel.App) error {
 	m.app = app
+	if m.subscriptions == nil {
+		m.subscriptions = make(map[string]kernel.State)
+	}
 
 	// --- 1. Event Subscription: Generic Metering Events ---
 	app.Events.Subscribe("metering.event", func(payload any) {
@@ -35,13 +68,12 @@ func (m *Module) Init(app *kernel.App) error {
 		app.Store.RecordMeteringEvent(*evt)
 	})
 
-	// --- 2. Legacy Event Subscription: Converts Completion Usage to MeteringEvent ---
+	// --- 2. Event Subscription: Converts Completion Usage to MeteringEvent ---
 	app.Events.Subscribe("usage.recorded", func(payload any) {
 		rec, ok := payload.(*completion.UsageRecord)
 		if !ok || rec == nil {
 			return
 		}
-		app.Store.AddUsage(rec.APIKey, rec.Tokens)
 
 		// Auto-register default subscription if none exists for ai-completion
 		subs := app.Store.GetServiceSubscriptions(rec.APIKey)
@@ -53,7 +85,6 @@ func (m *Module) Init(app *kernel.App) error {
 			}
 		}
 		if !hasAISub {
-			// Ignore error — L1 memory write never fails; slow backends handled by chain.
 			_ = app.Store.RegisterServiceSubscription(ServiceSubscription{
 				SubscriptionID: kernel.MustSubscriptionID("sub_ai_" + rec.APIKey),
 				TenantKey:      kernel.MustTenantKey(rec.APIKey),
@@ -66,7 +97,6 @@ func (m *Module) Init(app *kernel.App) error {
 			})
 		}
 
-		// Ignore L2/L3 backend errors on hot path — chain routes to WAL automatically.
 		_ = app.Store.RecordMeteringEvent(MeteringEvent{
 			EventID:   "evt_completion_" + time.Now().UTC().Format("20060102150405.000"),
 			TenantKey: kernel.MustTenantKey(rec.APIKey),
@@ -86,7 +116,8 @@ func (m *Module) Init(app *kernel.App) error {
 			if !ok {
 				return false, nil
 			}
-			return app.Store.UsageFor(key) < app.Config.DailyTokenQuota, nil
+			tokensUsed := getTenantTokenUsage(app.Store, key)
+			return tokensUsed < app.Config.DailyTokenQuota, nil
 		},
 	})
 
@@ -115,15 +146,22 @@ func (m *Module) Init(app *kernel.App) error {
 
 func (m *Module) handleGetOverview(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	overview := m.app.Store.GetTenantBillingOverview(key, time.Now().UTC())
+	overview := m.app.Store.GetTenantUsageOverview(key, time.Now().UTC())
+	st := m.SubscriptionState(key)
+	resp := map[string]any{
+		"tenant_key":         overview.TenantKey.String(),
+		"subscription_state": string(st),
+		"statements":        overview.Statements,
+		"generated_at":       overview.GeneratedAt,
+	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(overview)
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (m *Module) handleGetServiceStatement(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
 	serviceID := r.PathValue("service")
-	stmt, ok := m.app.Store.GetServiceBillingStatement(key, serviceID, time.Now().UTC())
+	stmt, ok := m.app.Store.GetServiceUsageStatement(key, serviceID, time.Now().UTC())
 	if !ok {
 		http.Error(w, "service subscription not found for tenant", http.StatusNotFound)
 		return
@@ -178,16 +216,31 @@ func (m *Module) handleIngestEvent(w http.ResponseWriter, r *http.Request) {
 
 func (m *Module) handleGetUsage(w http.ResponseWriter, r *http.Request) {
 	key := r.PathValue("key")
-	overview := m.app.Store.GetTenantBillingOverview(key, time.Now().UTC())
+	overview := m.app.Store.GetTenantUsageOverview(key, time.Now().UTC())
+	tokensUsed := getTenantTokenUsage(m.app.Store, key)
 	resp := map[string]any{
 		"api_key":            key,
-		"tokens_used":        m.app.Store.UsageFor(key),
+		"tokens_used":        tokensUsed,
 		"daily_quota":        m.app.Config.DailyTokenQuota,
-		"subscription_state": string(m.app.Store.SubscriptionState(key)),
+		"subscription_state": string(m.SubscriptionState(key)),
 		"overview":           overview,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
+}
+
+func getTenantTokenUsage(store *kernel.Store, tenantKey string) int {
+	stmt, ok := store.GetServiceUsageStatement(tenantKey, string(kernel.ServiceIDAICompletion), time.Now().UTC())
+	if !ok || stmt.Metrics == nil {
+		return 0
+	}
+	var total int
+	for _, m := range stmt.Metrics {
+		if m != nil {
+			total += int(m.CycleTotal)
+		}
+	}
+	return total
 }
 
 type fireEventReq struct {
@@ -203,7 +256,7 @@ func (m *Module) handleFireEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current := m.app.Store.SubscriptionState(key)
+	current := m.SubscriptionState(key)
 	if current == "unknown" {
 		current = "trial"
 	}
@@ -214,7 +267,7 @@ func (m *Module) handleFireEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m.app.Store.SetSubscriptionState(key, next)
+	m.SetSubscriptionState(key, next)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"api_key": key,
@@ -227,8 +280,6 @@ func (m *Module) handleFireEvent(w http.ResponseWriter, r *http.Request) {
 func (m *Module) Start(ctx context.Context) error { return nil }
 func (m *Module) Stop(ctx context.Context) error  { return nil }
 
-// handleStorageHealth returns the status of all metering storage backends,
-// circuit breakers, WAL state, and deduplication stats.
 func (m *Module) handleStorageHealth(w http.ResponseWriter, r *http.Request) {
 	chain := m.app.Store.MeteringChainRef()
 	if chain == nil {

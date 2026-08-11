@@ -216,9 +216,7 @@ func TestModule_HTTPHandlersAndSSE(t *testing.T) {
 	app := kernel.NewApp(cfg)
 	kernel.RegisterDefaultEncoders(app)
 
-	// Seed key in store for policy validation
-	app.Store.SeedAPIKey("test-api-key", "pro")
-	app.Store.SetSubscriptionState("test-api-key", "active")
+	// Register test policies for valid-api-key and under-quota
 
 	app.RegisterPolicy(kernel.FuncPolicy{
 		PolicyName: "valid-api-key",

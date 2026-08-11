@@ -45,8 +45,8 @@ type MeteringStore interface {
 // that should not be able to write events.
 type MeteringStoreReader interface {
 	GetServiceSubscriptions(tenantKey string) []ServiceSubscription
-	GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool)
-	GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview
+	GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool)
+	GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview
 }
 
 // MeteringEventRecorder is the write-only view for event producers.

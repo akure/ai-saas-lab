@@ -212,11 +212,11 @@ func (p *PostgresMeteringStore) GetServiceSubscriptions(tenantKey string) []Serv
 	return subs
 }
 
-// GetServiceBillingStatement computes a billing statement for a specific service
+// GetServiceUsageStatement computes a usage statement for a specific service
 // by aggregating metering events within the subscription's cycle window.
-func (p *PostgresMeteringStore) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
+func (p *PostgresMeteringStore) GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool) {
 	if !p.healthy.Load() {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -234,12 +234,12 @@ func (p *PostgresMeteringStore) GetServiceBillingStatement(tenantKey, serviceID 
 	).Scan(&sub.SubscriptionID, &sub.TenantKey, &sub.ServiceID,
 		&sub.PlanID, &chargeType, &sub.Timezone, &sub.AnchorTime, &sub.Status)
 	if err != nil {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 	sub.ChargeType = ChargeType(chargeType)
 
 	startUTC, endUTC := sub.CurrentCycleWindow(targetTime)
-	stmt := ServiceBillingStatement{
+	stmt := ServiceUsageStatement{
 		SubscriptionID: sub.SubscriptionID,
 		TenantKey:      sub.TenantKey,
 		ServiceID:      sub.ServiceID,
@@ -278,19 +278,18 @@ func (p *PostgresMeteringStore) GetServiceBillingStatement(tenantKey, serviceID 
 	return stmt, true
 }
 
-// GetTenantBillingOverview returns all service billing statements for a tenant.
-func (p *PostgresMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+// GetTenantUsageOverview returns all service usage statements for a tenant.
+func (p *PostgresMeteringStore) GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview {
 	tk, _ := NewTenantKey(tenantKey)
-	overview := TenantBillingOverview{
-		TenantKey:         tk,
-		SubscriptionState: "unknown",
-		Statements:        make([]ServiceBillingStatement, 0),
-		GeneratedAt:       time.Now().UTC(),
+	overview := TenantUsageOverview{
+		TenantKey:   tk,
+		Statements:  make([]ServiceUsageStatement, 0),
+		GeneratedAt: time.Now().UTC(),
 	}
 
 	subs := p.GetServiceSubscriptions(tenantKey)
 	for _, sub := range subs {
-		stmt, ok := p.GetServiceBillingStatement(tenantKey, sub.ServiceID.String(), targetTime)
+		stmt, ok := p.GetServiceUsageStatement(tenantKey, sub.ServiceID.String(), targetTime)
 		if ok {
 			overview.Statements = append(overview.Statements, stmt)
 		}

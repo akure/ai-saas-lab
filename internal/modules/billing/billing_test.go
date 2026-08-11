@@ -97,8 +97,8 @@ func TestStore_MultiServiceBillingAggregation(t *testing.T) {
 
 	targetTime, _ := time.Parse(time.RFC3339, "2026-08-20T12:00:00Z")
 
-	// Get Service Statement for AI completion
-	aiStmt, ok := store.GetServiceBillingStatement("tenant_1", "ai-completion", targetTime)
+	// Get Service Usage Statement for AI completion
+	aiStmt, ok := store.GetServiceUsageStatement("tenant_1", "ai-completion", targetTime)
 	if !ok {
 		t.Fatalf("expected statement for ai-completion")
 	}
@@ -107,9 +107,49 @@ func TestStore_MultiServiceBillingAggregation(t *testing.T) {
 	}
 
 	// Get Overview
-	overview := store.GetTenantBillingOverview("tenant_1", targetTime)
+	overview := store.GetTenantUsageOverview("tenant_1", targetTime)
 	if len(overview.Statements) != 2 {
 		t.Errorf("expected 2 service statements, got %d", len(overview.Statements))
+	}
+}
+
+func TestBillingModule_CalculateInvoice_RatingEngine(t *testing.T) {
+	tk := kernel.MustTenantKey("tenant_test")
+	kernelOverview := kernel.TenantUsageOverview{
+		TenantKey: tk,
+		Statements: []kernel.ServiceUsageStatement{
+			{
+				ServiceID: kernel.ServiceIDAICompletion,
+				Metrics: map[kernel.MetricID]*kernel.MetricSummary{
+					kernel.MetricIDTotalTokens: {
+						MetricID:   kernel.MetricIDTotalTokens,
+						Unit:       "tokens",
+						CycleTotal: 50000,
+					},
+				},
+			},
+		},
+	}
+
+	schedule := billing.PriceSchedule{
+		ScheduleID: "standard-usd",
+		Currency:   "USD",
+		FlatFee:    10.0,
+		Rates: map[string]billing.RateSpec{
+			"total_tokens": {
+				MetricID:      "total_tokens",
+				PricingModel:  billing.PricingModelPerUnit,
+				UnitPrice:     0.002, // $0.002 per 1,000 tokens
+				UnitQuantity:  1000,
+				IncludedQuota: 10000, // first 10,000 tokens free
+			},
+		},
+	}
+
+	usageOverview := billing.ToUsageOverview(kernelOverview)
+	invoice := billing.CalculateInvoice(usageOverview, schedule)
+	if invoice.Subtotal != 10.08 { // FlatFee 10 + ((50000-10000)/1000 * 0.002) = 10 + (40 * 0.002) = 10.08
+		t.Fatalf("expected invoice subtotal 10.08, got %f", invoice.Subtotal)
 	}
 }
 
@@ -168,7 +208,7 @@ func TestBillingModule_HTTPRoutes(t *testing.T) {
 		t.Fatalf("expected HTTP 200 OK, got %d: %s", wStmt.Code, wStmt.Body.String())
 	}
 
-	var stmt billing.ServiceBillingStatement
+	var stmt billing.ServiceUsageStatement
 	if err := json.Unmarshal(wStmt.Body.Bytes(), &stmt); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
@@ -184,11 +224,12 @@ func TestBillingModule_HTTPRoutes(t *testing.T) {
 	if wOvr.Code != http.StatusOK {
 		t.Fatalf("expected HTTP 200 OK, got %d: %s", wOvr.Code, wOvr.Body.String())
 	}
-	var ovr billing.TenantBillingOverview
+	var ovr map[string]any
 	if err := json.Unmarshal(wOvr.Body.Bytes(), &ovr); err != nil {
 		t.Fatalf("failed to decode overview response: %v", err)
 	}
-	if len(ovr.Statements) != 1 {
-		t.Errorf("expected 1 statement in overview, got %d", len(ovr.Statements))
+	stmts, ok := ovr["statements"].([]any)
+	if !ok || len(stmts) != 1 {
+		t.Errorf("expected 1 statement in overview, got %v", ovr["statements"])
 	}
 }

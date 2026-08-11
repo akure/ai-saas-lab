@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 
 	"aisaaslab/internal/kernel"
 )
@@ -17,18 +18,34 @@ var (
 	ErrMissingPlan    = errors.New("missing api key plan")
 )
 
-// Module registers a policy other modules can require by name. It never
-// exposes an HTTP route itself — pure policy provider.
+// APIKeyRecord is the internal representation of an API key managed by the auth module.
+type APIKeyRecord struct {
+	Key    string        `json:"key"`
+	Plan   kernel.PlanID `json:"plan"`
+	Active bool          `json:"active"`
+}
+
+// Module registers an authentication policy and API key management routes.
 type Module struct {
 	service *Service
 }
 
-func New() *Module { return &Module{} }
+func New() *Module {
+	return &Module{
+		service: NewService(),
+	}
+}
 
 func (m *Module) Name() string { return "auth" }
 
+func (m *Module) Service() *Service {
+	return m.service
+}
+
 func (m *Module) Init(app *kernel.App) error {
-	m.service = NewService(app.Store)
+	if m.service == nil {
+		m.service = NewService()
+	}
 	if app.Config != nil && app.Config.LocalTest {
 		m.seedDemoKeys()
 	}
@@ -81,26 +98,25 @@ func (m *Module) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{"api_key": key, "plan": req.Plan})
 }
 
-// Service provides MVP-friendly API key authentication logic for modules that
-// need to validate credentials independently of the rest of the application.
+// Service provides thread-safe API key authentication & credential management logic.
 type Service struct {
-	store *kernel.Store
+	mu      sync.RWMutex
+	apiKeys map[string]APIKeyRecord
 }
 
-func NewService(store *kernel.Store) *Service {
-	return &Service{store: store}
+func NewService() *Service {
+	return &Service{
+		apiKeys: make(map[string]APIKeyRecord),
+	}
 }
 
 func (s *Service) Authenticate(apiKey string) error {
-	if s.store == nil {
-		return ErrInvalidAPIKey
-	}
 	trimmed := strings.TrimSpace(apiKey)
 	if trimmed == "" {
 		return ErrInvalidAPIKey
 	}
 
-	record, ok := s.store.APIKeyInfo(trimmed)
+	record, ok := s.APIKeyInfo(trimmed)
 	if !ok {
 		return ErrUnknownAPIKey
 	}
@@ -114,21 +130,32 @@ func (s *Service) Authenticate(apiKey string) error {
 }
 
 func (s *Service) RegisterAPIKey(apiKey string, plan kernel.PlanID) error {
-	if s.store == nil {
-		return ErrInvalidAPIKey
-	}
 	trimmedKey := strings.TrimSpace(apiKey)
 	if trimmedKey == "" || plan.IsZero() {
 		return ErrInvalidAPIKey
 	}
-	s.store.SeedAPIKey(trimmedKey, plan)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.apiKeys[trimmedKey] = APIKeyRecord{Key: trimmedKey, Plan: plan, Active: true}
 	return nil
 }
 
+func (s *Service) IsValidAPIKey(key string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.apiKeys[key]
+	return ok && rec.Active
+}
+
+func (s *Service) APIKeyInfo(key string) (APIKeyRecord, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	rec, ok := s.apiKeys[key]
+	return rec, ok
+}
+
 func (s *Service) CreateAPIKey(plan kernel.PlanID) (string, error) {
-	if s.store == nil {
-		return "", ErrInvalidAPIKey
-	}
 	if plan.IsZero() {
 		return "", ErrInvalidAPIKey
 	}
@@ -138,6 +165,23 @@ func (s *Service) CreateAPIKey(plan kernel.PlanID) (string, error) {
 		return "", err
 	}
 	return key, nil
+}
+
+func (s *Service) RevokeAPIKey(apiKey string) error {
+	trimmed := strings.TrimSpace(apiKey)
+	if trimmed == "" {
+		return ErrInvalidAPIKey
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.apiKeys[trimmed]
+	if !ok {
+		return ErrUnknownAPIKey
+	}
+	rec.Active = false
+	s.apiKeys[trimmed] = rec
+	return nil
 }
 
 func (m *Module) seedDemoKeys() {
@@ -163,20 +207,4 @@ func randomSuffix(n int) string {
 		b[i] = letters[i%len(letters)]
 	}
 	return string(b)
-}
-
-func (s *Service) RevokeAPIKey(apiKey string) error {
-	if s.store == nil {
-		return ErrInvalidAPIKey
-	}
-	trimmed := strings.TrimSpace(apiKey)
-	if trimmed == "" {
-		return ErrInvalidAPIKey
-	}
-	_, ok := s.store.APIKeyInfo(trimmed)
-	if !ok {
-		return ErrUnknownAPIKey
-	}
-	s.store.RevokeAPIKey(trimmed)
-	return nil
 }

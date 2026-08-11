@@ -97,21 +97,21 @@ func (m *MemoryMeteringStore) GetServiceSubscriptions(tenantKey string) []Servic
 	return res
 }
 
-func (m *MemoryMeteringStore) GetServiceBillingStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceBillingStatement, bool) {
+func (m *MemoryMeteringStore) GetServiceUsageStatement(tenantKey, serviceID string, targetTime time.Time) (ServiceUsageStatement, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	subsMap, ok := m.serviceSubscriptions[tenantKey]
 	if !ok {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 	sub, ok := subsMap[ServiceID(serviceID)]
 	if !ok {
-		return ServiceBillingStatement{}, false
+		return ServiceUsageStatement{}, false
 	}
 
 	startUTC, endUTC := sub.CurrentCycleWindow(targetTime)
-	stmt := ServiceBillingStatement{
+	stmt := ServiceUsageStatement{
 		SubscriptionID: sub.SubscriptionID,
 		TenantKey:      sub.TenantKey,
 		ServiceID:      sub.ServiceID,
@@ -141,16 +141,15 @@ func (m *MemoryMeteringStore) GetServiceBillingStatement(tenantKey, serviceID st
 	return stmt, true
 }
 
-func (m *MemoryMeteringStore) GetTenantBillingOverview(tenantKey string, targetTime time.Time) TenantBillingOverview {
+func (m *MemoryMeteringStore) GetTenantUsageOverview(tenantKey string, targetTime time.Time) TenantUsageOverview {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	tk, _ := NewTenantKey(tenantKey)
-	overview := TenantBillingOverview{
-		TenantKey:         tk,
-		SubscriptionState: "unknown",
-		Statements:        make([]ServiceBillingStatement, 0),
-		GeneratedAt:       time.Now().UTC(),
+	overview := TenantUsageOverview{
+		TenantKey:   tk,
+		Statements:  make([]ServiceUsageStatement, 0),
+		GeneratedAt: time.Now().UTC(),
 	}
 
 	subsMap, ok := m.serviceSubscriptions[tenantKey]
@@ -160,7 +159,7 @@ func (m *MemoryMeteringStore) GetTenantBillingOverview(tenantKey string, targetT
 
 	for serviceID, sub := range subsMap {
 		startUTC, endUTC := sub.CurrentCycleWindow(targetTime)
-		stmt := ServiceBillingStatement{
+		stmt := ServiceUsageStatement{
 			SubscriptionID: sub.SubscriptionID,
 			TenantKey:      sub.TenantKey,
 			ServiceID:      sub.ServiceID,

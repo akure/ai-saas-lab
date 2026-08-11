@@ -98,26 +98,25 @@ type MetricSummary struct {
 	TotalEvents int64    `json:"total_events"` // Number of metering events recorded
 }
 
-// ServiceBillingStatement represents the statement for a single service subscription.
-type ServiceBillingStatement struct {
-	SubscriptionID SubscriptionID            `json:"subscription_id"`
-	TenantKey      TenantKey                 `json:"tenant_key"`
-	ServiceID      ServiceID                 `json:"service_id"`
-	PlanID         PlanID                    `json:"plan_id"`
-	ChargeType     ChargeType                `json:"charge_type"`
-	Timezone       string                    `json:"timezone"`
-	CycleStartUTC  time.Time                 `json:"cycle_start_utc"`
-	CycleEndUTC    time.Time                 `json:"cycle_end_utc"`
+// ServiceUsageStatement represents the usage summary statement for a single service subscription.
+type ServiceUsageStatement struct {
+	SubscriptionID SubscriptionID              `json:"subscription_id"`
+	TenantKey      TenantKey                   `json:"tenant_key"`
+	ServiceID      ServiceID                   `json:"service_id"`
+	PlanID         PlanID                      `json:"plan_id"`
+	ChargeType     ChargeType                  `json:"charge_type"`
+	Timezone       string                      `json:"timezone"`
+	CycleStartUTC  time.Time                   `json:"cycle_start_utc"`
+	CycleEndUTC    time.Time                   `json:"cycle_end_utc"`
 	Metrics        map[MetricID]*MetricSummary `json:"metrics"`
-	GeneratedAt    time.Time                 `json:"generated_at"`
+	GeneratedAt    time.Time                   `json:"generated_at"`
 }
 
-// TenantBillingOverview consolidates all service billing statements for a tenant.
-type TenantBillingOverview struct {
-	TenantKey         TenantKey                 `json:"tenant_key"`
-	SubscriptionState string                    `json:"subscription_state"`
-	Statements        []ServiceBillingStatement `json:"statements"`
-	GeneratedAt       time.Time                 `json:"generated_at"`
+// TenantUsageOverview consolidates all service usage statements for a tenant.
+type TenantUsageOverview struct {
+	TenantKey   TenantKey               `json:"tenant_key"`
+	Statements  []ServiceUsageStatement `json:"statements"`
+	GeneratedAt time.Time               `json:"generated_at"`
 }
 
 // Validate validates that a MeteringEvent has required fields.

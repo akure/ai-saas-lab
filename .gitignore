@@ -56,3 +56,5 @@ Thumbs.db
 *.swo
 *~
 
+# Local Task Notes
+*.taskpaper

@@ -14,6 +14,7 @@ import (
 	"aisaaslab/internal/modules/auth"
 	"aisaaslab/internal/modules/billing"
 	"aisaaslab/internal/modules/completion"
+	"aisaaslab/internal/modules/subscription"
 )
 
 func main() {
@@ -25,9 +26,15 @@ func main() {
 	kernel.RegisterDefaultEncoders(app)
 
 	// --- 3. Modules: each owns one feature slice, none import each other ---
-	app.RegisterModule(auth.New())
-	app.RegisterModule(completion.New())
-	app.RegisterModule(billing.New())
+	authMod := auth.New()
+	completionMod := completion.New()
+	subMod := subscription.New()
+	billingMod := billing.New()
+
+	app.RegisterModule(authMod)
+	app.RegisterModule(completionMod)
+	app.RegisterModule(subMod)
+	app.RegisterModule(billingMod)
 
 	// --- 4. Migrations: idempotent, ordered seed steps ---
 	migrator := kernel.NewMigrator(filepath.Join(cfg.DataDir, "schema_version.txt"))
@@ -35,10 +42,10 @@ func main() {
 		Version: 1,
 		Name:    "seed demo api keys",
 		Up: func(ctx context.Context) error {
-			app.Store.SeedAPIKey("demo-key-starter", "starter")
-			app.Store.SeedAPIKey("demo-key-pro", "pro")
-			app.Store.SetSubscriptionState("demo-key-starter", "trial")
-			app.Store.SetSubscriptionState("demo-key-pro", "trial")
+			_ = authMod.Service().RegisterAPIKey("demo-key-starter", "starter")
+			_ = authMod.Service().RegisterAPIKey("demo-key-pro", "pro")
+			subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-starter", PlanID: "starter", State: subscription.StateTrial})
+			subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-pro", PlanID: "pro", State: subscription.StateTrial})
 			return nil
 		},
 	})

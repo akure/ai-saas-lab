@@ -69,34 +69,34 @@ func (f *fakeBackend) GetServiceSubscriptions(tenantKey string) []kernel.Service
 	return res
 }
 
-func (f *fakeBackend) GetServiceBillingStatement(tenantKey, serviceID string, _ time.Time) (kernel.ServiceBillingStatement, bool) {
+func (f *fakeBackend) GetServiceUsageStatement(tenantKey, serviceID string, _ time.Time) (kernel.ServiceUsageStatement, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, s := range f.subs {
 		if s.TenantKey.String() == tenantKey && s.ServiceID.String() == serviceID {
 			tk, _ := kernel.NewTenantKey(tenantKey)
-			return kernel.ServiceBillingStatement{
+			return kernel.ServiceUsageStatement{
 				TenantKey: tk,
 				ServiceID: kernel.ServiceID(serviceID),
 				Metrics:   make(map[kernel.MetricID]*kernel.MetricSummary),
 			}, true
 		}
 	}
-	return kernel.ServiceBillingStatement{}, false
+	return kernel.ServiceUsageStatement{}, false
 }
 
-func (f *fakeBackend) GetTenantBillingOverview(tenantKey string, targetTime time.Time) kernel.TenantBillingOverview {
+func (f *fakeBackend) GetTenantUsageOverview(tenantKey string, targetTime time.Time) kernel.TenantUsageOverview {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	tk, _ := kernel.NewTenantKey(tenantKey)
-	overview := kernel.TenantBillingOverview{
+	overview := kernel.TenantUsageOverview{
 		TenantKey:   tk,
-		Statements:  make([]kernel.ServiceBillingStatement, 0),
+		Statements:  make([]kernel.ServiceUsageStatement, 0),
 		GeneratedAt: time.Now().UTC(),
 	}
 	for _, s := range f.subs {
 		if s.TenantKey.String() == tenantKey {
-			overview.Statements = append(overview.Statements, kernel.ServiceBillingStatement{
+			overview.Statements = append(overview.Statements, kernel.ServiceUsageStatement{
 				TenantKey: tk,
 				ServiceID: s.ServiceID,
 				Metrics:   make(map[kernel.MetricID]*kernel.MetricSummary),
