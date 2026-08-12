@@ -20,6 +20,7 @@ type App struct {
 	Events        *EventBus
 	Store         *Store
 	MeteringChain *MeteringChain // multi-backend metering storage orchestrator
+	TenantCatalog TenantCatalogStore
 	Mux           *http.ServeMux // shared HTTP router every HTTP-facing module registers routes into
 
 	encoders map[string]Encoder
@@ -31,14 +32,15 @@ type App struct {
 
 func NewApp(cfg *Config) *App {
 	app := &App{
-		Config:   cfg,
-		Events:   NewEventBus(),
-		Store:    NewStore(),
-		Mux:      http.NewServeMux(),
-		encoders: make(map[string]Encoder),
-		messages: make(map[string]MessageDescriptor),
-		handlers: make(map[string]MessageHandler),
-		policies: make(map[string]Policy),
+		Config:        cfg,
+		Events:        NewEventBus(),
+		Store:         NewStore(),
+		TenantCatalog: NewMemoryTenantCatalogStore(),
+		Mux:           http.NewServeMux(),
+		encoders:      make(map[string]Encoder),
+		messages:      make(map[string]MessageDescriptor),
+		handlers:      make(map[string]MessageHandler),
+		policies:      make(map[string]Policy),
 	}
 
 	// Build the MeteringChain from configuration.

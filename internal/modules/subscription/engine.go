@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"aisaaslab/internal/kernel"
 )
 
 var (
@@ -103,11 +105,11 @@ type Contract struct {
 }
 
 // Manager is a pure, thread-safe manager for subscription plans, contracts, and FSM state transitions.
-// Zero kernel dependencies — uses Go primitives (string, time.Time, bool, int64).
 type Manager struct {
 	mu        sync.RWMutex
 	plans     map[string]Plan
 	contracts map[string]Contract // tenantKey -> Contract
+	catalog   kernel.PlanCatalog
 }
 
 // NewManager creates a new Manager instance.
@@ -118,6 +120,12 @@ func NewManager() *Manager {
 	}
 	m.seedDefaultPlans()
 	return m
+}
+
+func (m *Manager) SetCatalog(cat kernel.PlanCatalog) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.catalog = cat
 }
 
 func (m *Manager) seedDefaultPlans() {

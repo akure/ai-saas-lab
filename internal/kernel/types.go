@@ -192,42 +192,56 @@ func (s ServiceID) Validate() error {
 	return nil
 }
 
-// PlanID represents a subscription pricing tier.
-type PlanID string
+// MaaSPlanID represents a MaaS platform infrastructure subscription tier.
+type MaaSPlanID string
 
 const (
-	PlanIDFree       PlanID = "free"
-	PlanIDPro        PlanID = "pro"
-	PlanIDEnterprise PlanID = "enterprise"
+	MaaSPlanStarter    MaaSPlanID = "maas-starter"
+	MaaSPlanGrowth     MaaSPlanID = "maas-growth"
+	MaaSPlanEnterprise MaaSPlanID = "maas-enterprise"
+
+	// Backward-compatibility aliases during refactoring transition
+	PlanIDFree       MaaSPlanID = "free"
+	PlanIDPro        MaaSPlanID = "pro"
+	PlanIDEnterprise MaaSPlanID = "enterprise"
 )
 
-func (p PlanID) String() string { return string(p) }
-func (p PlanID) IsZero() bool   { return p == "" }
-func (p PlanID) Validate() error {
+// Backward-compatibility type alias
+type PlanID = MaaSPlanID
+
+func (p MaaSPlanID) String() string { return string(p) }
+func (p MaaSPlanID) IsZero() bool   { return p == "" }
+func (p MaaSPlanID) Validate() error {
 	switch p {
-	case PlanIDFree, PlanIDPro, PlanIDEnterprise:
+	case MaaSPlanStarter, MaaSPlanGrowth, MaaSPlanEnterprise, PlanIDFree, PlanIDPro, PlanIDEnterprise:
 		return nil
 	default:
 		if p == "" {
-			return errors.New("plan_id cannot be empty")
+			return errors.New("maas_plan_id cannot be empty")
 		}
-		return fmt.Errorf("unknown plan_id: %s", string(p))
+		return fmt.Errorf("unknown maas_plan_id: %s", string(p))
 	}
 }
 
-// QuotaLimit returns the default daily token quota for the plan tier.
-func (p PlanID) QuotaLimit() int {
+// QuotaLimit returns the default daily token ingestion limit for the MaaS platform tier.
+func (p MaaSPlanID) QuotaLimit() int {
 	switch p {
-	case PlanIDPro:
+	case MaaSPlanGrowth, PlanIDPro:
 		return 100000
-	case PlanIDEnterprise:
+	case MaaSPlanEnterprise, PlanIDEnterprise:
 		return 1000000
-	case PlanIDFree:
+	case MaaSPlanStarter, PlanIDFree:
 		fallthrough
 	default:
 		return 1000
 	}
 }
+
+// ApplicationPlanID represents a dynamic end-customer plan identifier defined by a Tenant.
+type ApplicationPlanID string
+
+func (a ApplicationPlanID) String() string { return string(a) }
+func (a ApplicationPlanID) IsZero() bool   { return a == "" }
 
 // MetricID represents a billable resource metric.
 type MetricID string
@@ -246,6 +260,41 @@ func (m MetricID) Validate() error {
 	}
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// 3. Tenant Self-Service Catalog Descriptors
+// ---------------------------------------------------------------------------
+
+// TenantServiceDescriptor defines a dynamic service registered by a Tenant.
+type TenantServiceDescriptor struct {
+	ServiceID   ServiceID `json:"service_id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	CreatedAt   string    `json:"created_at,omitempty"`
+}
+
+// TenantMetricDescriptor defines a dynamic billable metric registered under a Tenant Service.
+type TenantMetricDescriptor struct {
+	MetricID    MetricID  `json:"metric_id"`
+	ServiceID   ServiceID `json:"service_id"`
+	Name        string    `json:"name"`
+	Unit        string    `json:"unit"` // e.g. "tokens", "seconds", "bytes", "requests"
+	Description string    `json:"description,omitempty"`
+	CreatedAt   string    `json:"created_at,omitempty"`
+}
+
+// TenantPlanDescriptor defines a dynamic pricing tier created by a Tenant for their end customers.
+type TenantPlanDescriptor struct {
+	PlanID         ApplicationPlanID   `json:"plan_id"`
+	ServiceID      ServiceID           `json:"service_id"`
+	Name           string              `json:"name"`
+	Rates          map[MetricID]float64 `json:"rates"`          // Cost per unit (e.g. "tokens": 0.002)
+	IncludedQuotas map[MetricID]int64   `json:"included_quotas"` // Included free usage per cycle
+	Version        int                 `json:"version"`
+	Active         bool                `json:"active"`
+	CreatedAt      string              `json:"created_at,omitempty"`
+}
+
 
 // EventTopic represents a topic key on the internal EventBus.
 type EventTopic string

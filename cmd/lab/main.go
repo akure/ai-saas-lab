@@ -15,6 +15,7 @@ import (
 	"aisaaslab/internal/modules/billing"
 	"aisaaslab/internal/modules/completion"
 	"aisaaslab/internal/modules/subscription"
+	"aisaaslab/internal/modules/tenant"
 )
 
 func main() {
@@ -30,11 +31,13 @@ func main() {
 	completionMod := completion.New()
 	subMod := subscription.New()
 	billingMod := billing.New()
+	tenantMod := tenant.New(authMod.Service())
 
 	app.RegisterModule(authMod)
 	app.RegisterModule(completionMod)
 	app.RegisterModule(subMod)
 	app.RegisterModule(billingMod)
+	app.RegisterModule(tenantMod)
 
 	// --- 4. Migrations: idempotent, ordered seed steps ---
 	migrator := kernel.NewMigrator(filepath.Join(cfg.DataDir, "schema_version.txt"))
@@ -70,7 +73,7 @@ func main() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 			if r.Method == "OPTIONS" {
 				w.WriteHeader(http.StatusOK)
 				return

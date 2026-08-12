@@ -20,9 +20,9 @@ var (
 
 // APIKeyRecord is the internal representation of an API key managed by the auth module.
 type APIKeyRecord struct {
-	Key    string        `json:"key"`
-	Plan   kernel.PlanID `json:"plan"`
-	Active bool          `json:"active"`
+	Key    string            `json:"key"`
+	Plan   kernel.MaaSPlanID `json:"plan"`
+	Active bool              `json:"active"`
 }
 
 // Module registers an authentication policy and API key management routes.
@@ -79,7 +79,7 @@ func (m *Module) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Plan kernel.PlanID `json:"plan"`
+		Plan kernel.MaaSPlanID `json:"plan"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -111,22 +111,27 @@ func NewService() *Service {
 }
 
 func (s *Service) Authenticate(apiKey string) error {
+	_, err := s.AuthenticateAndGetRecord(apiKey)
+	return err
+}
+
+func (s *Service) AuthenticateAndGetRecord(apiKey string) (APIKeyRecord, error) {
 	trimmed := strings.TrimSpace(apiKey)
 	if trimmed == "" {
-		return ErrInvalidAPIKey
+		return APIKeyRecord{}, ErrInvalidAPIKey
 	}
 
 	record, ok := s.APIKeyInfo(trimmed)
 	if !ok {
-		return ErrUnknownAPIKey
+		return APIKeyRecord{}, ErrUnknownAPIKey
 	}
 	if !record.Active {
-		return ErrInactiveAPIKey
+		return APIKeyRecord{}, ErrInactiveAPIKey
 	}
 	if record.Plan.IsZero() {
-		return ErrMissingPlan
+		return APIKeyRecord{}, ErrMissingPlan
 	}
-	return nil
+	return record, nil
 }
 
 func (s *Service) RegisterAPIKey(apiKey string, plan kernel.PlanID) error {
