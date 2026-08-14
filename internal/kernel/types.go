@@ -4,8 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
+	"time"
 )
+
+// serviceIDPattern allows lowercase alphanumeric, hyphens, and underscores.
+// Must start and end with an alphanumeric character. Max 64 chars.
+var serviceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$|^[a-z0-9]$`)
 
 // ---------------------------------------------------------------------------
 // 1. Encapsulated Smart Struct Types
@@ -189,6 +195,12 @@ func (s ServiceID) Validate() error {
 	if s == "" {
 		return errors.New("service_id cannot be empty")
 	}
+	if len(s) > 64 {
+		return fmt.Errorf("service_id %q exceeds maximum length of 64 characters", string(s))
+	}
+	if !serviceIDPattern.MatchString(string(s)) {
+		return fmt.Errorf("service_id %q is invalid: must be lowercase alphanumeric with hyphens/underscores, no leading/trailing hyphens", string(s))
+	}
 	return nil
 }
 
@@ -259,6 +271,9 @@ func (m MetricID) Validate() error {
 	if m == "" {
 		return errors.New("metric_id cannot be empty")
 	}
+	if len(m) > 64 {
+		return fmt.Errorf("metric_id %q exceeds maximum length of 64 characters", string(m))
+	}
 	return nil
 }
 
@@ -274,6 +289,25 @@ type TenantServiceDescriptor struct {
 	CreatedAt   string    `json:"created_at,omitempty"`
 }
 
+// Validate checks all fields of TenantServiceDescriptor for correctness.
+// Returns a *CatalogError wrapping ErrCatalogValidation on any failure.
+func (d TenantServiceDescriptor) Validate() error {
+	if err := d.ServiceID.Validate(); err != nil {
+		return NewValidationError("service_id", err.Error())
+	}
+	name := strings.TrimSpace(d.Name)
+	if name == "" {
+		return NewValidationError("name", "name cannot be empty")
+	}
+	if len(name) > 128 {
+		return NewValidationError("name", fmt.Sprintf("name exceeds maximum length of 128 characters (got %d)", len(name)))
+	}
+	if len(d.Description) > 512 {
+		return NewValidationError("description", fmt.Sprintf("description exceeds maximum length of 512 characters (got %d)", len(d.Description)))
+	}
+	return nil
+}
+
 // TenantMetricDescriptor defines a dynamic billable metric registered under a Tenant Service.
 type TenantMetricDescriptor struct {
 	MetricID    MetricID  `json:"metric_id"`
@@ -282,6 +316,27 @@ type TenantMetricDescriptor struct {
 	Unit        string    `json:"unit"` // e.g. "tokens", "seconds", "bytes", "requests"
 	Description string    `json:"description,omitempty"`
 	CreatedAt   string    `json:"created_at,omitempty"`
+}
+
+// Validate checks all fields of TenantMetricDescriptor.
+func (d TenantMetricDescriptor) Validate() error {
+	if err := d.MetricID.Validate(); err != nil {
+		return NewValidationError("metric_id", err.Error())
+	}
+	if err := d.ServiceID.Validate(); err != nil {
+		return NewValidationError("service_id", err.Error())
+	}
+	if len(strings.TrimSpace(d.Name)) > 128 {
+		return NewValidationError("name", "name exceeds maximum length of 128 characters")
+	}
+	if len(d.Description) > 512 {
+		return NewValidationError("description", "description exceeds maximum length of 512 characters")
+	}
+	unit := strings.TrimSpace(d.Unit)
+	if unit == "" {
+		return NewValidationError("unit", "unit cannot be empty (e.g. \"tokens\", \"requests\", \"bytes\")")
+	}
+	return nil
 }
 
 // TenantPlanDescriptor defines a dynamic pricing tier created by a Tenant for their end customers.
@@ -300,9 +355,46 @@ type TenantPlanDescriptor struct {
 type EventTopic string
 
 const (
+	// Metering & subscription topics
 	TopicUsageRecorded       EventTopic = "usage.recorded"
 	TopicSubscriptionUpdated EventTopic = "subscription.updated"
 	TopicKeyCreated          EventTopic = "key.created"
+
+	// Tenant catalog topics — published by tenant.Service, consumed by any subscriber.
+	TopicServiceRegistered EventTopic = "tenant.service.registered"
+	TopicMetricRegistered  EventTopic = "tenant.metric.registered"
+	TopicPlanRegistered    EventTopic = "tenant.plan.created"
 )
 
 func (e EventTopic) String() string { return string(e) }
+
+// ---------------------------------------------------------------------------
+// Typed Event Payload Structs (catalog)
+// ---------------------------------------------------------------------------
+
+// ServiceRegisteredEvent is published on TopicServiceRegistered when a tenant
+// successfully registers a new service descriptor.
+type ServiceRegisteredEvent struct {
+	TenantKey    string    `json:"tenant_key"`
+	ServiceID    string    `json:"service_id"`
+	Name         string    `json:"name"`
+	RegisteredAt time.Time `json:"registered_at"`
+}
+
+// MetricRegisteredEvent is published on TopicMetricRegistered.
+type MetricRegisteredEvent struct {
+	TenantKey    string    `json:"tenant_key"`
+	MetricID     string    `json:"metric_id"`
+	ServiceID    string    `json:"service_id"`
+	Unit         string    `json:"unit"`
+	RegisteredAt time.Time `json:"registered_at"`
+}
+
+// PlanRegisteredEvent is published on TopicPlanRegistered.
+type PlanRegisteredEvent struct {
+	TenantKey    string    `json:"tenant_key"`
+	PlanID       string    `json:"plan_id"`
+	ServiceID    string    `json:"service_id"`
+	Version      int       `json:"version"`
+	RegisteredAt time.Time `json:"registered_at"`
+}

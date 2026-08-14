@@ -2,6 +2,7 @@ package tenant
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"aisaaslab/internal/kernel"
@@ -28,6 +29,9 @@ func (m *Module) Service() *Service {
 }
 
 func (m *Module) Init(app *kernel.App) error {
+	if app.TenantCatalog == nil {
+		return fmt.Errorf("tenant module: app.TenantCatalog is nil — catalog chain failed to initialize")
+	}
 	if m.service == nil {
 		m.service = NewService(app.TenantCatalog, app.Events)
 	}
@@ -38,6 +42,7 @@ func (m *Module) Init(app *kernel.App) error {
 		return TenantAuthMiddleware(app, m.authService, h)
 	}
 
+	// Collection routes (POST = register, GET = list)
 	app.Mux.HandleFunc("POST /v1/tenant/catalog/services", authMW(m.handlers.HandleServices))
 	app.Mux.HandleFunc("GET /v1/tenant/catalog/services", authMW(m.handlers.HandleServices))
 
@@ -46,6 +51,11 @@ func (m *Module) Init(app *kernel.App) error {
 
 	app.Mux.HandleFunc("POST /v1/tenant/catalog/plans", authMW(m.handlers.HandlePlans))
 	app.Mux.HandleFunc("GET /v1/tenant/catalog/plans", authMW(m.handlers.HandlePlans))
+
+	// Single-entity GET routes (G2)
+	app.Mux.HandleFunc("GET /v1/tenant/catalog/services/{id}", authMW(m.handlers.HandleGetService))
+	app.Mux.HandleFunc("GET /v1/tenant/catalog/metrics/{id}", authMW(m.handlers.HandleGetMetric))
+	app.Mux.HandleFunc("GET /v1/tenant/catalog/plans/{id}", authMW(m.handlers.HandleGetPlan))
 
 	app.Mux.HandleFunc("GET /v1/tenant/catalog/overview", authMW(m.handlers.HandleOverview))
 

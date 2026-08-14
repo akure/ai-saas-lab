@@ -29,6 +29,14 @@ type Config struct {
 	MeteringDedupRetentionMs int    // dedup window in milliseconds (default: 3600000 = 1h)
 	MeteringBatchSize        int    // batch flush size for slow backends (default: 100)
 	MeteringBatchFlushMs     int    // batch flush interval in milliseconds (default: 1000)
+
+	// --- Catalog storage configuration ---
+	CatalogBackends      string // comma-separated: "memory,redis,postgres" (default: "memory")
+	CatalogPostgresDSN   string // PostgreSQL DSN for catalog (reuses metering DSN if empty)
+	CatalogRedisAddr     string // Redis addr for catalog (reuses metering addr if empty)
+	CatalogWALEnabled    bool   // enable CatalogWAL (default: true)
+	CatalogWALDir        string // catalog WAL directory (default: "{DataDir}/wal/catalog")
+	CatalogRedisTTLHours int    // TTL for catalog entries in Redis hours (default: 24)
 }
 
 // LoadConfig layers three sources, lowest to highest priority:
@@ -52,6 +60,11 @@ func LoadConfig(path string) *Config {
 		MeteringDedupRetentionMs: 3600000, // 1 hour
 		MeteringBatchSize:        100,
 		MeteringBatchFlushMs:     1000,
+
+		// Catalog defaults — memory-only, WAL enabled.
+		CatalogBackends:      "memory",
+		CatalogWALEnabled:    true,
+		CatalogRedisTTLHours: 24,
 	}
 
 	if f, err := os.Open(path); err == nil {
@@ -77,6 +90,8 @@ func LoadConfig(path string) *Config {
 		"METERING_CB_THRESHOLD", "METERING_CB_COOLDOWN_MS",
 		"METERING_CHANNEL_SIZE", "METERING_DEDUP_RETENTION_MS",
 		"METERING_BATCH_SIZE", "METERING_BATCH_FLUSH_MS",
+		"CATALOG_BACKENDS", "CATALOG_POSTGRES_DSN", "CATALOG_REDIS_ADDR",
+		"CATALOG_WAL_ENABLED", "CATALOG_WAL_DIR", "CATALOG_REDIS_TTL_HOURS",
 	}
 	for _, key := range envKeys {
 		if v := os.Getenv(key); v != "" {
@@ -140,6 +155,22 @@ func applyConfigValue(cfg *Config, key, val string) {
 	case "METERING_BATCH_FLUSH_MS":
 		if n, err := strconv.Atoi(val); err == nil {
 			cfg.MeteringBatchFlushMs = n
+		}
+
+	// --- Catalog storage ---
+	case "CATALOG_BACKENDS":
+		cfg.CatalogBackends = val
+	case "CATALOG_POSTGRES_DSN":
+		cfg.CatalogPostgresDSN = val
+	case "CATALOG_REDIS_ADDR":
+		cfg.CatalogRedisAddr = val
+	case "CATALOG_WAL_ENABLED":
+		cfg.CatalogWALEnabled = val == "1" || strings.EqualFold(val, "true") || strings.EqualFold(val, "yes")
+	case "CATALOG_WAL_DIR":
+		cfg.CatalogWALDir = val
+	case "CATALOG_REDIS_TTL_HOURS":
+		if n, err := strconv.Atoi(val); err == nil {
+			cfg.CatalogRedisTTLHours = n
 		}
 	}
 }

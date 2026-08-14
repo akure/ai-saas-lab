@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-// MemoryTenantCatalogStore is an in-memory L1 implementation of TenantCatalogStore.
+// MemoryTenantCatalogStore is an in-memory L1 like implementation of TenantCatalogStore.
 type MemoryTenantCatalogStore struct {
 	mu       sync.RWMutex
-	services map[string]map[ServiceID]TenantServiceDescriptor         // tenantKey -> serviceID -> descriptor
-	metrics  map[string]map[MetricID]TenantMetricDescriptor           // tenantKey -> metricID -> descriptor
-	plans    map[string]map[ApplicationPlanID]TenantPlanDescriptor    // tenantKey -> planID -> descriptor
+	services map[string]map[ServiceID]TenantServiceDescriptor      // tenantKey -> serviceID -> descriptor
+	metrics  map[string]map[MetricID]TenantMetricDescriptor        // tenantKey -> metricID -> descriptor
+	plans    map[string]map[ApplicationPlanID]TenantPlanDescriptor // tenantKey -> planID -> descriptor
 }
 
 func NewMemoryTenantCatalogStore() *MemoryTenantCatalogStore {

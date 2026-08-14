@@ -35,7 +35,7 @@ func NewApp(cfg *Config) *App {
 		Config:        cfg,
 		Events:        NewEventBus(),
 		Store:         NewStore(),
-		TenantCatalog: NewMemoryTenantCatalogStore(),
+		TenantCatalog: NewMemoryTenantCatalogStore(), // default; overwritten below if chain builds
 		Mux:           http.NewServeMux(),
 		encoders:      make(map[string]Encoder),
 		messages:      make(map[string]MessageDescriptor),
@@ -53,6 +53,13 @@ func NewApp(cfg *Config) *App {
 		app.MeteringChain = chain
 		app.Store.SetMeteringChain(chain)
 		chain.Start()
+	}
+
+	// Build the CatalogChain from configuration.
+	if catalogChain, err := buildCatalogChain(cfg); err != nil {
+		fmt.Printf("[app] WARNING: failed to build catalog chain: %v\n", err)
+	} else {
+		app.TenantCatalog = catalogChain
 	}
 
 	return app
@@ -155,4 +162,92 @@ func buildMeteringChain(cfg *Config) (*MeteringChain, error) {
 
 	return chain, nil
 }
+// buildCatalogChain constructs the CatalogChain from config, adding L1/L2/L3
+// backends based on CATALOG_BACKENDS. Returns a *CatalogChain implementing
+// TenantCatalogStore, with WAL and ReplayLoop started.
+func buildCatalogChain(cfg *Config) (*CatalogChain, error) {
+	walDir := cfg.CatalogWALDir
+	if walDir == "" {
+		walDir = filepath.Join(cfg.DataDir, "wal", "catalog")
+	}
 
+	// Build WAL (may be disabled via config).
+	wal, err := NewCatalogWAL(CatalogWALConfig{
+		Dir:            walDir,
+		MaxSegmentSize: 10 * 1024 * 1024,
+		MaxSegmentAge:  10 * time.Minute,
+		RetryInterval:  5 * time.Second,
+		Enabled:        cfg.CatalogWALEnabled,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("catalog wal: %w", err)
+	}
+
+	backendsStr := strings.TrimSpace(cfg.CatalogBackends)
+	if backendsStr == "" {
+		backendsStr = "memory"
+	}
+
+	startCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Resolve effective DSN/addr: catalog-specific wins; fall back to metering.
+	postgresDSN := cfg.CatalogPostgresDSN
+	if postgresDSN == "" {
+		postgresDSN = cfg.MeteringPostgresDSN
+	}
+	redisAddr := cfg.CatalogRedisAddr
+	if redisAddr == "" {
+		redisAddr = cfg.MeteringRedisAddr
+	}
+
+	var backends []TenantCatalogStore
+	memAdded := false
+
+	for _, name := range strings.Split(backendsStr, ",") {
+		name = strings.TrimSpace(name)
+		switch name {
+		case "memory":
+			backends = append(backends, NewMemoryTenantCatalogStore())
+			memAdded = true
+		case "redis":
+			if redisAddr != "" {
+				ttl := cfg.CatalogRedisTTLHours
+				if ttl <= 0 {
+					ttl = 24
+				}
+				rd, err := NewRedisTenantCatalogStore(startCtx, redisAddr, ttl)
+				if err != nil {
+					fmt.Printf("[app] WARNING: catalog redis backend failed: %v\n", err)
+				} else {
+					backends = append(backends, rd)
+				}
+			}
+		case "postgres":
+			if postgresDSN != "" {
+				pg, err := NewPostgresTenantCatalogStore(startCtx, postgresDSN)
+				if err != nil {
+					fmt.Printf("[app] WARNING: catalog postgres backend failed: %v\n", err)
+				} else {
+					backends = append(backends, pg)
+				}
+			}
+		default:
+			fmt.Printf("[app] WARNING: unknown catalog backend %q, skipping\n", name)
+		}
+	}
+
+	if !memAdded {
+		backends = append([]TenantCatalogStore{NewMemoryTenantCatalogStore()}, backends...)
+	}
+
+	chain, err := NewCatalogChain(backends, wal)
+	if err != nil {
+		return nil, err
+	}
+
+	// Start WAL replay loop (background goroutine).
+	wal.ReplayLoop(context.Background(), chain.replayWALEntry)
+
+	return chain, nil
+}

@@ -53,35 +53,42 @@ func (p *PostgresTenantCatalogStore) Close() error {
 func (p *PostgresTenantCatalogStore) autoMigrate(ctx context.Context) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS tenant_services (
-			tenant_key TEXT NOT NULL,
-			service_id TEXT NOT NULL,
-			name TEXT NOT NULL,
+			tenant_key  TEXT NOT NULL,
+			service_id  TEXT NOT NULL,
+			name        TEXT NOT NULL,
 			description TEXT,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (tenant_key, service_id)
 		);`,
 		`CREATE TABLE IF NOT EXISTS tenant_metrics (
-			tenant_key TEXT NOT NULL,
-			metric_id TEXT NOT NULL,
-			service_id TEXT NOT NULL,
-			name TEXT NOT NULL,
-			unit TEXT NOT NULL,
+			tenant_key  TEXT NOT NULL,
+			metric_id   TEXT NOT NULL,
+			service_id  TEXT NOT NULL,
+			name        TEXT NOT NULL,
+			unit        TEXT NOT NULL,
 			description TEXT,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (tenant_key, metric_id)
 		);`,
 		`CREATE TABLE IF NOT EXISTS tenant_plans (
-			tenant_key TEXT NOT NULL,
-			plan_id TEXT NOT NULL,
-			service_id TEXT NOT NULL,
-			name TEXT NOT NULL,
-			rates_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-			included_quotas_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-			version INT NOT NULL DEFAULT 1,
-			active BOOLEAN NOT NULL DEFAULT true,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			tenant_key           TEXT    NOT NULL,
+			plan_id              TEXT    NOT NULL,
+			service_id           TEXT    NOT NULL,
+			name                 TEXT    NOT NULL,
+			rates_json           JSONB   NOT NULL DEFAULT '{}'::jsonb,
+			included_quotas_json JSONB   NOT NULL DEFAULT '{}'::jsonb,
+			version              INT     NOT NULL DEFAULT 1,
+			active               BOOLEAN NOT NULL DEFAULT true,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			PRIMARY KEY (tenant_key, plan_id)
 		);`,
+		// Idempotent: add updated_at if upgrading from older schema.
+		`ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+		`ALTER TABLE tenant_metrics  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
+		`ALTER TABLE tenant_plans    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`,
 	}
 
 	for _, q := range queries {
@@ -96,13 +103,16 @@ func (p *PostgresTenantCatalogStore) autoMigrate(ctx context.Context) error {
 
 func (p *PostgresTenantCatalogStore) RegisterService(ctx context.Context, tenant TenantKey, svc TenantServiceDescriptor) error {
 	query := `
-		INSERT INTO tenant_services (tenant_key, service_id, name, description, created_at)
-		VALUES ($1, $2, $3, $4, NOW())
+		INSERT INTO tenant_services (tenant_key, service_id, name, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, NOW(), NOW())
 		ON CONFLICT (tenant_key, service_id) DO UPDATE
-		SET name = EXCLUDED.name, description = EXCLUDED.description;
+		SET name = EXCLUDED.name, description = EXCLUDED.description, updated_at = NOW();
 	`
 	_, err := p.pool.Exec(ctx, query, tenant.String(), svc.ServiceID.String(), svc.Name, svc.Description)
-	return err
+	if err != nil {
+		return fmt.Errorf("postgres register service: %w", err)
+	}
+	return nil
 }
 
 func (p *PostgresTenantCatalogStore) GetService(ctx context.Context, tenant TenantKey, id ServiceID) (TenantServiceDescriptor, bool, error) {
@@ -150,13 +160,19 @@ func (p *PostgresTenantCatalogStore) ListServices(ctx context.Context, tenant Te
 
 func (p *PostgresTenantCatalogStore) RegisterMetric(ctx context.Context, tenant TenantKey, metric TenantMetricDescriptor) error {
 	query := `
-		INSERT INTO tenant_metrics (tenant_key, metric_id, service_id, name, unit, description, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		INSERT INTO tenant_metrics (tenant_key, metric_id, service_id, name, unit, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 		ON CONFLICT (tenant_key, metric_id) DO UPDATE
-		SET service_id = EXCLUDED.service_id, name = EXCLUDED.name, unit = EXCLUDED.unit, description = EXCLUDED.description;
+		SET service_id = EXCLUDED.service_id, name = EXCLUDED.name,
+		    unit = EXCLUDED.unit, description = EXCLUDED.description, updated_at = NOW();
 	`
-	_, err := p.pool.Exec(ctx, query, tenant.String(), metric.MetricID.String(), metric.ServiceID.String(), metric.Name, metric.Unit, metric.Description)
-	return err
+	_, err := p.pool.Exec(ctx, query,
+		tenant.String(), metric.MetricID.String(), metric.ServiceID.String(),
+		metric.Name, metric.Unit, metric.Description)
+	if err != nil {
+		return fmt.Errorf("postgres register metric: %w", err)
+	}
+	return nil
 }
 
 func (p *PostgresTenantCatalogStore) GetMetric(ctx context.Context, tenant TenantKey, id MetricID) (TenantMetricDescriptor, bool, error) {

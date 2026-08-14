@@ -4,17 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 // RedisTenantCatalogStore is an L2 Redis cache implementation of TenantCatalogStore.
 type RedisTenantCatalogStore struct {
-	client *redis.Client
-	addr   string
+	client  *redis.Client
+	addr    string
+	ttl     time.Duration // configurable TTL for catalog hash keys (default 24h)
 }
 
-func NewRedisTenantCatalogStore(ctx context.Context, addr string) (*RedisTenantCatalogStore, error) {
+func NewRedisTenantCatalogStore(ctx context.Context, addr string, ttlHours int) (*RedisTenantCatalogStore, error) {
 	opt, err := redis.ParseURL(addr)
 	if err != nil {
 		opt = &redis.Options{Addr: addr}
@@ -27,9 +29,13 @@ func NewRedisTenantCatalogStore(ctx context.Context, addr string) (*RedisTenantC
 		return nil, fmt.Errorf("redis catalog: ping %s: %w", addr, err)
 	}
 
+	if ttlHours <= 0 {
+		ttlHours = 24
+	}
 	return &RedisTenantCatalogStore{
 		client: rdb,
 		addr:   addr,
+		ttl:    time.Duration(ttlHours) * time.Hour,
 	}, nil
 }
 
@@ -51,7 +57,10 @@ func (r *RedisTenantCatalogStore) RegisterService(ctx context.Context, tenant Te
 		return fmt.Errorf("marshal service: %w", err)
 	}
 	key := fmt.Sprintf("catalog:%s:services", tenant.String())
-	return r.client.HSet(ctx, key, svc.ServiceID.String(), data).Err()
+	if err := r.client.HSet(ctx, key, svc.ServiceID.String(), data).Err(); err != nil {
+		return fmt.Errorf("redis register service: %w", err)
+	}
+	return r.client.Expire(ctx, key, r.ttl).Err()
 }
 
 func (r *RedisTenantCatalogStore) GetService(ctx context.Context, tenant TenantKey, id ServiceID) (TenantServiceDescriptor, bool, error) {
@@ -94,7 +103,10 @@ func (r *RedisTenantCatalogStore) RegisterMetric(ctx context.Context, tenant Ten
 		return fmt.Errorf("marshal metric: %w", err)
 	}
 	key := fmt.Sprintf("catalog:%s:metrics", tenant.String())
-	return r.client.HSet(ctx, key, metric.MetricID.String(), data).Err()
+	if err := r.client.HSet(ctx, key, metric.MetricID.String(), data).Err(); err != nil {
+		return fmt.Errorf("redis register metric: %w", err)
+	}
+	return r.client.Expire(ctx, key, r.ttl).Err()
 }
 
 func (r *RedisTenantCatalogStore) GetMetric(ctx context.Context, tenant TenantKey, id MetricID) (TenantMetricDescriptor, bool, error) {
@@ -137,7 +149,10 @@ func (r *RedisTenantCatalogStore) RegisterPlan(ctx context.Context, tenant Tenan
 		return fmt.Errorf("marshal plan: %w", err)
 	}
 	key := fmt.Sprintf("catalog:%s:plans", tenant.String())
-	return r.client.HSet(ctx, key, plan.PlanID.String(), data).Err()
+	if err := r.client.HSet(ctx, key, plan.PlanID.String(), data).Err(); err != nil {
+		return fmt.Errorf("redis register plan: %w", err)
+	}
+	return r.client.Expire(ctx, key, r.ttl).Err()
 }
 
 func (r *RedisTenantCatalogStore) GetPlan(ctx context.Context, tenant TenantKey, id ApplicationPlanID) (TenantPlanDescriptor, bool, error) {

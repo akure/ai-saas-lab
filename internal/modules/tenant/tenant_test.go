@@ -122,7 +122,9 @@ func TestTenantCatalogModule_ReferentialIntegrity(t *testing.T) {
 	wMetric := httptest.NewRecorder()
 	app.Mux.ServeHTTP(wMetric, reqMetric)
 
-	if wMetric.Code != http.StatusBadRequest {
-		t.Errorf("expected status 400 Bad Request when service missing, got %d: %s", wMetric.Code, wMetric.Body.String())
+	// Referential integrity: metric for unregistered service → 422 Unprocessable Entity
+	// (structured error: validation failure on service_id, not a generic 400).
+	if wMetric.Code != http.StatusUnprocessableEntity {
+		t.Errorf("expected status 422 Unprocessable Entity when service missing, got %d: %s", wMetric.Code, wMetric.Body.String())
 	}
 }

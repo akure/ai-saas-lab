@@ -7,3 +7,5 @@
 3. All Magic numbers must be in domain specific package constants file. 
 
 4. Write smart structure types when we needed more control over the variables like PlanID, TenantID, APIKey etc.
+
+5. Use Pointer return and Point receivers whenever the struct is having mutex or map variables. 
