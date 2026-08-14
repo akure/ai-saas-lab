@@ -35,7 +35,7 @@ func MustTenantKey(raw string) TenantKey {
 }
 
 func (t TenantKey) String() string { return t.value }
-func (t TenantKey) IsZero() bool    { return t.value == "" }
+func (t TenantKey) IsZero() bool   { return t.value == "" }
 
 func (t TenantKey) MarshalJSON() ([]byte, error) {
 	return json.Marshal(t.value)
@@ -147,7 +147,7 @@ func MustSubscriptionID(raw string) SubscriptionID {
 }
 
 func (s SubscriptionID) String() string { return s.value }
-func (s SubscriptionID) IsZero() bool    { return s.value == "" }
+func (s SubscriptionID) IsZero() bool   { return s.value == "" }
 
 func (s SubscriptionID) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.value)
@@ -171,7 +171,7 @@ func (s *SubscriptionID) UnmarshalJSON(b []byte) error {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Defined String Types & Enums
+// 2. Defined String Types & Enums (strongly typed strings)
 // ---------------------------------------------------------------------------
 
 // ServiceID represents a system service identifier.
@@ -223,6 +223,7 @@ func (p MaaSPlanID) Validate() error {
 	}
 }
 
+// TODO - To be changed after POC and before MVP
 // QuotaLimit returns the default daily token ingestion limit for the MaaS platform tier.
 func (p MaaSPlanID) QuotaLimit() int {
 	switch p {
@@ -285,16 +286,15 @@ type TenantMetricDescriptor struct {
 
 // TenantPlanDescriptor defines a dynamic pricing tier created by a Tenant for their end customers.
 type TenantPlanDescriptor struct {
-	PlanID         ApplicationPlanID   `json:"plan_id"`
-	ServiceID      ServiceID           `json:"service_id"`
-	Name           string              `json:"name"`
-	Rates          map[MetricID]float64 `json:"rates"`          // Cost per unit (e.g. "tokens": 0.002)
+	PlanID         ApplicationPlanID    `json:"plan_id"`
+	ServiceID      ServiceID            `json:"service_id"`
+	Name           string               `json:"name"`
+	Rates          map[MetricID]float64 `json:"rates"`           // Cost per unit (e.g. "tokens": 0.002)
 	IncludedQuotas map[MetricID]int64   `json:"included_quotas"` // Included free usage per cycle
-	Version        int                 `json:"version"`
-	Active         bool                `json:"active"`
-	CreatedAt      string              `json:"created_at,omitempty"`
+	Version        int                  `json:"version"`
+	Active         bool                 `json:"active"`
+	CreatedAt      string               `json:"created_at,omitempty"`
 }
-
 
 // EventTopic represents a topic key on the internal EventBus.
 type EventTopic string

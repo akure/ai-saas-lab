@@ -18,6 +18,7 @@ type ActionFunc[S comparable, E comparable, T any] func(ctx context.Context, fro
 // Transition describes one legal move in the state machine.
 // Encapsulates routing (From -> Event -> To), pre-condition closures (Guards),
 // and transactional side-effect closures (Action).
+// Note: Transition is a copyable and comparable struct.
 type Transition[S comparable, E comparable, T any] struct {
 	From   S
 	Event  E
