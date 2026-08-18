@@ -8,7 +8,7 @@ import (
 	"aisaaslab/internal/kernel"
 )
 
-// Service handles tenant self-service catalog operations and event notifications.
+// Service handles tenant self-service catalog get/set operations and event notifications.
 type Service struct {
 	catalog kernel.TenantCatalogStore
 	events  *kernel.EventBus

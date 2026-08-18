@@ -11,7 +11,8 @@ import (
 // maxBodyBytes caps incoming request bodies to prevent memory abuse.
 const maxBodyBytes = 64 * 1024 // 64 KB
 
-// Handlers exposes HTTP endpoints for the tenant self-service catalog.
+// Handlers is a tenant specific HTTP handler wrapper for the tenant self-service catalog.
+// Hanlders job is to call approrpiate the right service method and return the result to client.
 type Handlers struct {
 	service *Service
 }

@@ -180,6 +180,17 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           
           <div className="space-y-2.5">
             <button
+              onClick={() => onNavigate('tenant-catalog')}
+              className="w-full flex items-center justify-between p-3 rounded-xl bg-obsidian-900 border border-gold-500/30 hover:border-gold-500/60 hover:bg-obsidian-800 transition-all text-xs font-semibold text-gold-300 shadow-gold-sm"
+            >
+              <div className="flex items-center space-x-2.5">
+                <Database className="w-4 h-4 text-gold-400" />
+                <span>Tenant Metering Catalog</span>
+              </div>
+              <ArrowUpRight className="w-3.5 h-3.5 text-gold-400" />
+            </button>
+
+            <button
               onClick={() => onNavigate('api-keys')}
               className="w-full flex items-center justify-between p-3 rounded-xl bg-obsidian-900 border border-gold-500/20 hover:border-gold-500/50 hover:bg-obsidian-800 transition-all text-xs font-medium text-slate-200"
             >

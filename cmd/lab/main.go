@@ -43,18 +43,24 @@ func main() {
 	migrator := kernel.NewMigrator(filepath.Join(cfg.DataDir, "schema_version.txt"))
 	migrator.Register(kernel.Migration{
 		Version: 1,
-		Name:    "seed demo api keys",
+		Name:    "seed schema marker",
 		Up: func(ctx context.Context) error {
-			_ = authMod.Service().RegisterAPIKey("demo-key-starter", "starter")
-			_ = authMod.Service().RegisterAPIKey("demo-key-pro", "pro")
-			subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-starter", PlanID: "starter", State: subscription.StateTrial})
-			subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-pro", PlanID: "pro", State: subscription.StateTrial})
 			return nil
 		},
 	})
 	if err := migrator.Run(context.Background()); err != nil {
 		log.Fatalf("migration failed: %v", err)
 	}
+
+	// Always seed demo keys in memory for lab environment
+	_ = authMod.Service().RegisterAPIKey("demo-key-starter", "starter")
+	_ = authMod.Service().RegisterAPIKey("demo-key-pro", "pro")
+	_ = authMod.Service().RegisterAPIKey("sk_lab_pro_8f92a1c4e7b3091d", "pro")
+	_ = authMod.Service().RegisterAPIKey("sk_lab_free_3c7d91e8b2a5", "free")
+	subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-starter", PlanID: "starter", State: subscription.StateTrial})
+	subMod.Manager().CreateContract(subscription.Contract{TenantKey: "demo-key-pro", PlanID: "pro", State: subscription.StateTrial})
+	subMod.Manager().CreateContract(subscription.Contract{TenantKey: "sk_lab_pro_8f92a1c4e7b3091d", PlanID: "pro", State: subscription.StateTrial})
+	subMod.Manager().CreateContract(subscription.Contract{TenantKey: "sk_lab_free_3c7d91e8b2a5", PlanID: "free", State: subscription.StateTrial})
 
 	// --- 5. Init every module (they register messages/handlers/policies/routes here) ---
 	if err := app.InitAll(); err != nil {

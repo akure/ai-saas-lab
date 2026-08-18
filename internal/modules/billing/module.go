@@ -139,7 +139,6 @@ func (m *Module) Init(app *kernel.App) error {
 
 	// Backward compatible & FSM routes
 	app.Mux.HandleFunc("GET /v1/usage/{key}", m.handleGetUsage)
-	app.Mux.HandleFunc("POST /v1/subscription/{key}/event", m.handleFireEvent)
 
 	return nil
 }

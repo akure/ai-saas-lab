@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
 import { OverviewTab } from './components/OverviewTab';
+import { TenantCatalogTab } from './components/tenant-catalog/TenantCatalogTab';
 import { ApiKeysTab } from './components/ApiKeysTab';
 import { MeteringSimulatorTab } from './components/MeteringSimulatorTab';
 import { AnalyticsStorageTab } from './components/AnalyticsStorageTab';
@@ -16,6 +17,7 @@ export const App: React.FC = () => {
   const [selectedPlan, setSelectedPlan] = useState<PlanTier>('pro');
   const [isBackendOnline, setIsBackendOnline] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [currentTenantKey, setCurrentTenantKey] = useState<string>('demo-key-starter');
 
   // Default API Keys state
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([
@@ -151,6 +153,15 @@ export const App: React.FC = () => {
               simParams={simParams}
               selectedPlan={selectedPlan}
               onNavigate={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'tenant-catalog' && (
+            <TenantCatalogTab
+              apiKeys={apiKeys}
+              currentTenantKey={currentTenantKey}
+              onSelectTenantKey={setCurrentTenantKey}
+              onShowToast={addToast}
             />
           )}
 
