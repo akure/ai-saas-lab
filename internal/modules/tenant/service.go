@@ -234,6 +234,26 @@ func (s *Service) RegisterPlan(ctx context.Context, tenant kernel.TenantKey, des
 		}
 	}
 
+	// 2b. Referential integrity + value check: all IncludedQuota MetricIDs must
+	// exist and quota values must be non-negative.
+	for mID, quota := range descriptor.IncludedQuotas {
+		if quota < 0 {
+			return kernel.TenantPlanDescriptor{}, fmt.Errorf("register plan: %w",
+				kernel.NewValidationError("included_quotas",
+					fmt.Sprintf("quota for metric_id %q must be >= 0, got %d", mID, quota)))
+		}
+		_, foundMetric, err := s.catalog.GetMetric(ctx, tenant, mID)
+		if err != nil {
+			return kernel.TenantPlanDescriptor{}, fmt.Errorf("register plan: verify included quota metric %q: %w", mID, err)
+		}
+		if !foundMetric {
+			return kernel.TenantPlanDescriptor{}, fmt.Errorf("register plan: %w",
+				kernel.NewValidationError("included_quotas",
+					fmt.Sprintf("metric_id %q must be registered before attaching an included quota to plan %q",
+						mID, descriptor.PlanID)))
+		}
+	}
+
 	// 3. Conflict check.
 	_, exists, err := s.catalog.GetPlan(ctx, tenant, descriptor.PlanID)
 	if err != nil {

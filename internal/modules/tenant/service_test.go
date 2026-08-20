@@ -304,3 +304,56 @@ func TestService_RegisterPlan_MetricMissing_Returns422(t *testing.T) {
 		t.Errorf("expected validation error (metric not found), got: %v", err)
 	}
 }
+
+func TestService_RegisterPlan_IncludedQuota_UnknownMetric_Returns422(t *testing.T) {
+	ctx := context.Background()
+	catalog := newMockCatalog()
+	svc := NewService(catalog, nil)
+	tenant := kernel.MustTenantKey("acme")
+
+	if _, err := svc.RegisterService(ctx, tenant, kernel.TenantServiceDescriptor{
+		ServiceID: "my-svc", Name: "My Svc",
+	}); err != nil {
+		t.Fatalf("register service: %v", err)
+	}
+
+	// IncludedQuotas references metric "images" which was never registered.
+	_, err := svc.RegisterPlan(ctx, tenant, kernel.TenantPlanDescriptor{
+		PlanID:         "free-v1",
+		ServiceID:      "my-svc",
+		Name:           "Free",
+		IncludedQuotas: map[kernel.MetricID]int64{"images": 100},
+	})
+	if !kernel.IsCatalogValidation(err) {
+		t.Errorf("expected validation error (included_quota metric not found), got: %v", err)
+	}
+}
+
+func TestService_RegisterPlan_IncludedQuota_NegativeValue_Returns422(t *testing.T) {
+	ctx := context.Background()
+	catalog := newMockCatalog()
+	svc := NewService(catalog, nil)
+	tenant := kernel.MustTenantKey("acme")
+
+	if _, err := svc.RegisterService(ctx, tenant, kernel.TenantServiceDescriptor{
+		ServiceID: "my-svc", Name: "My Svc",
+	}); err != nil {
+		t.Fatalf("register service: %v", err)
+	}
+	if _, err := svc.RegisterMetric(ctx, tenant, kernel.TenantMetricDescriptor{
+		MetricID: "tokens", ServiceID: "my-svc", Name: "Tokens", Unit: "tokens",
+	}); err != nil {
+		t.Fatalf("register metric: %v", err)
+	}
+
+	// Negative quota values are semantically invalid.
+	_, err := svc.RegisterPlan(ctx, tenant, kernel.TenantPlanDescriptor{
+		PlanID:         "bad-v1",
+		ServiceID:      "my-svc",
+		Name:           "Bad",
+		IncludedQuotas: map[kernel.MetricID]int64{"tokens": -500},
+	})
+	if !kernel.IsCatalogValidation(err) {
+		t.Errorf("expected validation error (negative quota), got: %v", err)
+	}
+}
