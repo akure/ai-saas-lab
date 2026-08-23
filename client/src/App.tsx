@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
 import { Sidebar, TabId } from './components/Sidebar';
 import { OverviewTab } from './components/OverviewTab';
+import { SubscriptionTab } from './components/SubscriptionTab';
 import { TenantCatalogTab } from './components/tenant-catalog/TenantCatalogTab';
 import { ApiKeysTab } from './components/ApiKeysTab';
 import { MeteringSimulatorTab } from './components/MeteringSimulatorTab';
@@ -153,6 +154,14 @@ export const App: React.FC = () => {
               simParams={simParams}
               selectedPlan={selectedPlan}
               onNavigate={setActiveTab}
+            />
+          )}
+
+          {activeTab === 'subscription' && (
+            <SubscriptionTab
+              currentTenantKey={currentTenantKey}
+              onTenantKeyChange={setCurrentTenantKey}
+              addToast={addToast}
             />
           )}
 

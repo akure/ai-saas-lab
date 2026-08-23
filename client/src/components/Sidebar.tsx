@@ -1,7 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, Key, Sliders, BarChart3, FileJson, Terminal, ShieldAlert, Layers } from 'lucide-react';
+import { LayoutDashboard, Key, Sliders, BarChart3, FileJson, Terminal, ShieldAlert, Layers, ShieldCheck } from 'lucide-react';
 
-export type TabId = 'overview' | 'tenant-catalog' | 'api-keys' | 'metering' | 'analytics' | 'json-studio' | 'api-tester';
+export type TabId = 'overview' | 'subscription' | 'tenant-catalog' | 'api-keys' | 'metering' | 'analytics' | 'json-studio' | 'api-tester';
 
 interface SidebarProps {
   activeTab: TabId;
@@ -10,6 +10,7 @@ interface SidebarProps {
 
 const navItems: Array<{ id: TabId; label: string; icon: React.FC<{ className?: string }>; badge?: string }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'subscription', label: 'Subscriptions & FSM', icon: ShieldCheck, badge: 'FSM' },
   { id: 'tenant-catalog', label: 'Tenant Catalog', icon: Layers, badge: 'MaaS' },
   { id: 'api-keys', label: 'API Keys', icon: Key },
   { id: 'metering', label: 'Metering Sandbox', icon: Sliders, badge: 'Sliders' },
