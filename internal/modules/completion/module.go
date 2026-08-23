@@ -114,8 +114,8 @@ func (m *Module) handleChatCompletion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Policy check via kernel app (valid-api-key, under-quota)
-	if err := app.CheckPolicies(ctx, req.APIKey, "valid-api-key", "under-quota"); err != nil {
+	// Policy check via kernel app (valid-api-key, has-active-subscription, under-quota)
+	if err := app.CheckPolicies(ctx, req.APIKey, "valid-api-key", "has-active-subscription", "under-quota"); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})

@@ -226,6 +226,12 @@ func TestModule_HTTPHandlersAndSSE(t *testing.T) {
 		},
 	})
 	app.RegisterPolicy(kernel.FuncPolicy{
+		PolicyName: "has-active-subscription",
+		Fn: func(ctx context.Context, subject any) (bool, error) {
+			return true, nil
+		},
+	})
+	app.RegisterPolicy(kernel.FuncPolicy{
 		PolicyName: "under-quota",
 		Fn: func(ctx context.Context, subject any) (bool, error) {
 			return true, nil
