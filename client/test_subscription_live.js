@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,7 +15,8 @@ const CONFIG = {
   stepPause: process.env.STEP_PAUSE === 'true',
   typeDelay: 60,
   screenDir: path.join(__dirname, 'tests', 'screenshots', 'subscription'),
-  videoDir: path.join(__dirname, 'tests', 'videos', 'subscription'),
+  // Save video recordings outside project repository directory
+  videoDir: process.env.VIDEO_DIR || path.join(os.tmpdir(), 'ai-saas-lab-videos', 'subscription'),
 };
 
 // Ensure screenshot and video output directories exist
