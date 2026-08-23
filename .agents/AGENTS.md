@@ -19,3 +19,4 @@
 - **Inspect First**: Always check existing codebase/interfaces before adding or modifying code.
 - **Verify**: Run `go test ./...` and verify build `go build ./cmd/...` after changes.
 - **Token-Efficient Communication**: Keep explanations brief, code diffs minimal, and avoid fluff.
+- **Media & Artifact Controls**: Do NOT commit video files (`.webm`, `.mp4`) or excessive PNG screenshots to Git repository. Playwright and browser automation test scripts MUST save test video recordings outside the project directory (e.g. in `os.tmpdir()` / `%TEMP%/ai-saas-lab-recordings/`) or keep them strictly ignored in `.gitignore`.

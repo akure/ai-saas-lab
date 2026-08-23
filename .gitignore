@@ -43,9 +43,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Test reports
+# Test reports & Media Artifacts
 playwright-report/
 test-results/
+*.webm
+*.mp4
+client/tests/videos/
+client/tests/screenshots/
+**/videos/
+**/screenshots/
 
 # Editor & OS files
 .DS_Store
