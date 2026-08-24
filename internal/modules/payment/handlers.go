@@ -77,6 +77,14 @@ func (m *Module) handleProcessPayment(w http.ResponseWriter, r *http.Request) {
 
 	tx, err := m.gateway.ProcessPayment(r.Context(), id, req)
 	if err != nil {
+		if errors.Is(err, ErrSessionNotFound) {
+			writeJSONError(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrSessionAlreadyDone) {
+			writeJSONError(w, err.Error(), http.StatusConflict)
+			return
+		}
 		if errors.Is(err, ErrVerificationReq) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
@@ -91,6 +99,36 @@ func (m *Module) handleProcessPayment(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPaymentRequired)
 			_ = json.NewEncoder(w).Encode(tx)
+			return
+		}
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tx)
+}
+
+func (m *Module) handleRefundPayment(w http.ResponseWriter, r *http.Request) {
+	if r.Body == nil {
+		writeJSONError(w, "request body is required", http.StatusBadRequest)
+		return
+	}
+
+	var req RefundReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "invalid json request body", http.StatusBadRequest)
+		return
+	}
+
+	tx, err := m.gateway.RefundPayment(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, ErrTransactionNotFound) {
+			writeJSONError(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, ErrCannotRefund) {
+			writeJSONError(w, err.Error(), http.StatusConflict)
 			return
 		}
 		writeJSONError(w, err.Error(), http.StatusBadRequest)

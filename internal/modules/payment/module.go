@@ -31,6 +31,7 @@ func (m *Module) Init(app *kernel.App) error {
 	app.Mux.HandleFunc("POST /v1/payment/checkout", m.handleCreateCheckout)
 	app.Mux.HandleFunc("GET /v1/payment/sessions/{id}", m.handleGetSession)
 	app.Mux.HandleFunc("POST /v1/payment/sessions/{id}/process", m.handleProcessPayment)
+	app.Mux.HandleFunc("POST /v1/payment/refunds", m.handleRefundPayment)
 	app.Mux.HandleFunc("POST /v1/payment/webhooks/simulate", m.handleSimulateWebhook)
 	app.Mux.HandleFunc("GET /v1/payment/transactions/{key}", m.handleListTransactions)
 

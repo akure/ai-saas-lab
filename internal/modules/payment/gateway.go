@@ -10,6 +10,7 @@ type Gateway interface {
 	CreateCheckoutSession(ctx context.Context, req CreateCheckoutReq) (*CheckoutSession, error)
 	GetCheckoutSession(ctx context.Context, id string) (*CheckoutSession, bool)
 	ProcessPayment(ctx context.Context, sessionID string, req ProcessPaymentReq) (*Transaction, error)
+	RefundPayment(ctx context.Context, req RefundReq) (*Transaction, error)
 	SimulateWebhook(ctx context.Context, req SimulateWebhookReq) (*WebhookResult, error)
 	ListTransactions(ctx context.Context, tenantKey string) ([]Transaction, error)
 }

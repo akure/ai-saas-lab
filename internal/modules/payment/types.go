@@ -8,11 +8,12 @@ import (
 type SessionStatus string
 
 const (
-	StatusPending         SessionStatus = "pending"
-	StatusRequiresAction  SessionStatus = "requires_action"
-	StatusSucceeded       SessionStatus = "succeeded"
-	StatusFailed          SessionStatus = "failed"
-	StatusCancelled       SessionStatus = "cancelled"
+	StatusPending        SessionStatus = "pending"
+	StatusRequiresAction SessionStatus = "requires_action"
+	StatusSucceeded      SessionStatus = "succeeded"
+	StatusFailed         SessionStatus = "failed"
+	StatusCancelled      SessionStatus = "cancelled"
+	StatusRefunded       SessionStatus = "refunded"
 )
 
 // PaymentMethod specifies the generic type of payment instrument used.
@@ -79,6 +80,12 @@ type SimulateWebhookReq struct {
 	TenantKey string `json:"tenant_key"`
 	SessionID string `json:"session_id,omitempty"`
 	PlanID    string `json:"plan_id,omitempty"`
+}
+
+// RefundReq DTO to issue a refund against a completed transaction reference.
+type RefundReq struct {
+	TransactionID string `json:"transaction_id"`
+	Reason        string `json:"reason,omitempty"`
 }
 
 // WebhookResult summarizes the outcome of a processed mock webhook event.

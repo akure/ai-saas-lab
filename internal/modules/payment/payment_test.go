@@ -105,4 +105,25 @@ func TestPaymentModule_EndToEnd(t *testing.T) {
 	if contractPast.State != subscription.StatePastDue {
 		t.Errorf("expected state past_due after payment.failed webhook, got %s", contractPast.State)
 	}
+
+	// 5. Test Refund API: POST /v1/payment/refunds
+	refBody, _ := json.Marshal(payment.RefundReq{
+		TransactionID: tx.ID,
+		Reason:        "customer_request",
+	})
+	reqRef := httptest.NewRequest("POST", "/v1/payment/refunds", bytes.NewReader(refBody))
+	wRef := httptest.NewRecorder()
+	app.Mux.ServeHTTP(wRef, reqRef)
+
+	if wRef.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for refund, got %d: %s", wRef.Code, wRef.Body.String())
+	}
+
+	var refundedTx payment.Transaction
+	if err := json.Unmarshal(wRef.Body.Bytes(), &refundedTx); err != nil {
+		t.Fatalf("failed to parse refund response: %v", err)
+	}
+	if refundedTx.Status != payment.StatusRefunded {
+		t.Errorf("expected refund status refunded, got %s", refundedTx.Status)
+	}
 }

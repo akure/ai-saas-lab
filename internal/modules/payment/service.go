@@ -20,6 +20,8 @@ var (
 	ErrPaymentDeclined     = errors.New("payment attempt declined by sandbox issuer")
 	ErrVerificationReq     = errors.New("multi-factor payment verification challenge required")
 	ErrUnsupportedMethod   = errors.New("unsupported payment method requested")
+	ErrTransactionNotFound = errors.New("transaction record not found")
+	ErrCannotRefund        = errors.New("only successful transactions can be refunded")
 )
 
 // MockGateway implements the vendor-decoupled Gateway interface with rich testing simulation.
@@ -181,6 +183,64 @@ func (g *MockGateway) ProcessPayment(ctx context.Context, sessionID string, req 
 	}
 
 	return &tx, nil
+}
+
+func (g *MockGateway) RefundPayment(ctx context.Context, req RefundReq) (*Transaction, error) {
+	req.TransactionID = strings.TrimSpace(req.TransactionID)
+	if req.TransactionID == "" {
+		return nil, errors.New("transaction_id is required for refund")
+	}
+
+	g.mu.Lock()
+	var targetTx *Transaction
+	var tenantKey string
+
+	for key, txList := range g.transactions {
+		for i, tx := range txList {
+			if tx.ID == req.TransactionID || tx.ReferenceID == req.TransactionID {
+				if tx.Status != StatusSucceeded {
+					g.mu.Unlock()
+					return nil, ErrCannotRefund
+				}
+				g.transactions[key][i].Status = StatusRefunded
+				targetTx = &g.transactions[key][i]
+				tenantKey = key
+				break
+			}
+		}
+		if targetTx != nil {
+			break
+		}
+	}
+
+	if targetTx == nil {
+		g.mu.Unlock()
+		return nil, ErrTransactionNotFound
+	}
+
+	now := time.Now().UTC()
+	refundTx := Transaction{
+		ID:            generateID("ref_tx"),
+		SessionID:     targetTx.SessionID,
+		TenantKey:     tenantKey,
+		PlanID:        targetTx.PlanID,
+		AmountCents:   targetTx.AmountCents,
+		Currency:      targetTx.Currency,
+		PaymentMethod: targetTx.PaymentMethod,
+		Status:        StatusRefunded,
+		ReferenceID:   generateID("ref"),
+		ProcessedAt:   now,
+		FailureReason: req.Reason,
+	}
+
+	g.transactions[tenantKey] = append(g.transactions[tenantKey], refundTx)
+	g.mu.Unlock()
+
+	if g.subManager != nil {
+		_, _ = g.subManager.FireTransition(tenantKey, "payment_failed")
+	}
+
+	return &refundTx, nil
 }
 
 func (g *MockGateway) SimulateWebhook(ctx context.Context, req SimulateWebhookReq) (*WebhookResult, error) {
