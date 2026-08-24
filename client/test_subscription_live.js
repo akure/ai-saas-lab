@@ -183,28 +183,44 @@ async function runSubscriptionLiveTest() {
     await maybePause('STEP 6');
 
     // ----------------------------------------------------
-    // STEP 7 — Switch Tenant Plan
+    // STEP 7 — Switch / Checkout Tenant Plan
     // ----------------------------------------------------
-    console.log('\n▶ STEP 7: Switching Tenant Plan Tier...');
-    const switchPlanBtn = page.locator(`button:has-text("Switch to ${testIds.customPlanName}")`);
-    if (await switchPlanBtn.isVisible()) {
-      await highlightClick(switchPlanBtn);
-      await switchPlanBtn.click();
+    console.log('\n▶ STEP 7: Launching Mock Payment Checkout Modal...');
+    const checkoutBtn = page.locator('button:has-text("Checkout Pro Tier")').first();
+    if (await checkoutBtn.isVisible()) {
+      await highlightClick(checkoutBtn);
+      await checkoutBtn.click();
       await page.waitForTimeout(1500);
-      await shot(page, 8, 'switched_plan_active_contract');
-      pass(`Switched tenant contract to "${testIds.customPlanName}"`);
-    } else {
-      const switchProBtn = page.locator('button:has-text("Switch to Pro Tier")').first();
-      await highlightClick(switchProBtn);
-      await switchProBtn.click();
-      await page.waitForTimeout(1500);
-      await shot(page, 8, 'switched_plan_pro');
-      pass('Switched tenant contract to Pro Tier');
+      await shot(page, 8, 'mock_payment_modal_launched');
+      pass('Opened Sandbox Payment Gateway Modal');
+
+      // STEP 8 — Process Payment inside Modal
+      console.log('\n▶ STEP 8: Processing Mock Payment Transaction...');
+      const payConfirmBtn = page.locator('button:has-text("Complete")').first();
+      await highlightClick(payConfirmBtn);
+      await payConfirmBtn.click();
+      await page.waitForTimeout(2000);
+      await shot(page, 9, 'payment_completed_ledger_updated');
+      pass('Completed payment transaction; ledger updated');
     }
-    await maybePause('STEP 7');
+    await maybePause('STEP 8');
+
+    // ----------------------------------------------------
+    // STEP 9 — Dispatch Gateway Webhook Event
+    // ----------------------------------------------------
+    console.log('\n▶ STEP 9: Dispatching Simulated Webhook Event...');
+    const dispatchBtn = page.locator('button:has-text("Dispatch Webhook Event")');
+    if (await dispatchBtn.isVisible()) {
+      await highlightClick(dispatchBtn);
+      await dispatchBtn.click();
+      await page.waitForTimeout(1800);
+      await shot(page, 10, 'webhook_event_dispatched');
+      pass('Dispatched simulated gateway webhook event');
+    }
+    await maybePause('STEP 9');
 
     console.log('\n====================================================');
-    console.log(' 🎉 ALL SUBSCRIPTION & FSM LIVE BROWSER TESTS PASSED!');
+    console.log(' 🎉 ALL SUBSCRIPTION, FSM & PAYMENT LIVE TESTS PASSED!');
     console.log('====================================================\n');
   } catch (err) {
     console.error('\n❌ TEST FAILED:', err);

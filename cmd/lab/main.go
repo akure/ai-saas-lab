@@ -14,6 +14,7 @@ import (
 	"aisaaslab/internal/modules/auth"
 	"aisaaslab/internal/modules/billing"
 	"aisaaslab/internal/modules/completion"
+	"aisaaslab/internal/modules/payment"
 	"aisaaslab/internal/modules/subscription"
 	"aisaaslab/internal/modules/tenant"
 )
@@ -32,12 +33,14 @@ func main() {
 	subMod := subscription.New()
 	billingMod := billing.New()
 	tenantMod := tenant.New(authMod.Service())
+	payMod := payment.New(subMod.Manager())
 
 	app.RegisterModule(authMod)
 	app.RegisterModule(completionMod)
 	app.RegisterModule(subMod)
 	app.RegisterModule(billingMod)
 	app.RegisterModule(tenantMod)
+	app.RegisterModule(payMod)
 
 	// --- 4. Migrations: idempotent, ordered seed steps ---
 	migrator := kernel.NewMigrator(filepath.Join(cfg.DataDir, "schema_version.txt"))

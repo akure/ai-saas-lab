@@ -16,6 +16,9 @@ import {
   Sparkles,
   Database,
   X,
+  CreditCard,
+  Send,
+  Receipt,
 } from 'lucide-react';
 import {
   SubscriptionPlan,
@@ -29,6 +32,14 @@ import {
   fireSubscriptionEvent,
   registerSubscriptionPlan,
 } from '../services/subscriptionApi';
+import {
+  CheckoutSession,
+  Transaction,
+  createCheckoutSession,
+  listTransactions,
+  simulateWebhook,
+} from '../services/paymentApi';
+import { MockPaymentModal } from './MockPaymentModal';
 
 interface SubscriptionTabProps {
   currentTenantKey: string;
@@ -49,6 +60,11 @@ export const SubscriptionTab: React.FC<SubscriptionTabProps> = ({
   const [eventLogs, setEventLogs] = useState<Array<{ id: string; time: string; text: string; type: 'success' | 'warn' | 'info' | 'danger' }>>([]);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState<boolean>(false);
 
+  // Mock Payment state
+  const [activeCheckoutSession, setActiveCheckoutSession] = useState<CheckoutSession | null>(null);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [webhookEvent, setWebhookEvent] = useState<string>('payment.succeeded');
+
   // New plan form state
   const [newPlanId, setNewPlanId] = useState<string>('');
   const [newPlanName, setNewPlanName] = useState<string>('');
@@ -57,12 +73,14 @@ export const SubscriptionTab: React.FC<SubscriptionTabProps> = ({
   const loadData = async (key: string) => {
     setIsLoading(true);
     try {
-      const [fetchedPlans, fetchedContract] = await Promise.all([
+      const [fetchedPlans, fetchedContract, fetchedTxs] = await Promise.all([
         fetchSubscriptionPlans(),
         fetchTenantSubscription(key),
+        listTransactions(key),
       ]);
       setPlans(fetchedPlans);
       setContract(fetchedContract);
+      setTransactions(fetchedTxs);
     } catch (err: any) {
       addToast('Fetch Error', err.message || 'Failed loading subscription state', 'error');
     } finally {
@@ -88,13 +106,53 @@ export const SubscriptionTab: React.FC<SubscriptionTabProps> = ({
 
   const handleSelectPlan = async (planId: string) => {
     try {
-      const updated = await createSubscriptionContract(currentTenantKey, planId);
-      setContract(updated);
-      addToast('Plan Upgraded', `Tenant "${currentTenantKey}" bound to plan "${planId}"`, 'success');
-      addLog(`Updated contract to plan "${planId}"`, 'success');
+      if (planId === 'starter' || planId === 'free') {
+        const updated = await createSubscriptionContract(currentTenantKey, planId);
+        setContract(updated);
+        addToast('Plan Selected', `Tenant "${currentTenantKey}" bound to plan "${planId}"`, 'success');
+        addLog(`Updated contract to plan "${planId}"`, 'success');
+        return;
+      }
+
+      // Paid plans launch the Mock Payment Modal
+      const amountCents = planId === 'pro' ? 4900 : planId === 'enterprise' ? 29900 : 9900;
+      const session = await createCheckoutSession({
+        tenant_key: currentTenantKey,
+        plan_id: planId,
+        amount_cents: amountCents,
+        currency: 'USD',
+        billing_cycle: 'monthly',
+      });
+
+      setActiveCheckoutSession(session);
+      addLog(`Initiated checkout session "${session.id}" for plan "${planId}"`, 'info');
     } catch (err: any) {
-      addToast('Upgrade Failed', err.message || 'Could not update contract plan', 'error');
-      addLog(`Failed switching plan: ${err.message}`, 'danger');
+      addToast('Upgrade Failed', err.message || 'Could not initiate checkout session', 'error');
+      addLog(`Failed initiating checkout: ${err.message}`, 'danger');
+    }
+  };
+
+  const handlePaymentSuccess = async (tx: Transaction) => {
+    setActiveCheckoutSession(null);
+    addToast('Payment Successful', `Transaction ${tx.reference_id} completed successfully`, 'success');
+    addLog(`Payment Succeeded: $${(tx.amount_cents / 100).toFixed(2)} via ${tx.payment_method}`, 'success');
+    await loadData(currentTenantKey);
+  };
+
+  const handleSimulateWebhookSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await simulateWebhook({
+        event: webhookEvent,
+        tenant_key: currentTenantKey,
+        plan_id: contract?.plan_id,
+      });
+      addToast('Webhook Dispatched', `Event "${res.event}" processed (${res.fsm_effect})`, 'info');
+      addLog(`Simulated Webhook "${res.event}": ${res.fsm_effect}`, 'info');
+      await loadData(currentTenantKey);
+    } catch (err: any) {
+      addToast('Webhook Error', err.message || 'Failed dispatching webhook', 'error');
+      addLog(`Webhook Dispatch Failed: ${err.message}`, 'danger');
     }
   };
 
@@ -562,13 +620,116 @@ export const SubscriptionTab: React.FC<SubscriptionTabProps> = ({
                       : 'bg-gradient-to-r from-gold-500 to-gold-600 hover:from-gold-400 hover:to-gold-500 text-obsidian-950 shadow-gold-sm'
                   }`}
                 >
-                  {isCurrent ? 'Current Plan' : `Switch to ${plan.name}`}
+                  {isCurrent ? 'Current Plan' : `Checkout ${plan.name}`}
                 </button>
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Payment Ledger & Webhook Simulator Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Ledger */}
+        <div className="lg:col-span-2 p-6 rounded-2xl bg-obsidian-900/80 border border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-emerald-400" />
+              <span>Sandbox Transaction Ledger</span>
+            </h3>
+            <span className="text-xs text-slate-400 font-mono">Tenant: {currentTenantKey}</span>
+          </div>
+
+          {transactions.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-slate-800 rounded-xl text-xs text-slate-500">
+              No transactions recorded for this tenant yet. Click "Checkout" above to test.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead className="bg-obsidian-950/60 text-slate-400 font-mono text-[11px]">
+                  <tr>
+                    <th className="p-2.5 rounded-l-lg">Reference ID</th>
+                    <th className="p-2.5">Plan</th>
+                    <th className="p-2.5">Method</th>
+                    <th className="p-2.5">Amount</th>
+                    <th className="p-2.5">Status</th>
+                    <th className="p-2.5 rounded-r-lg">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {transactions.map((tx) => (
+                    <tr key={tx.id} className="hover:bg-slate-800/30">
+                      <td className="p-2.5 font-mono text-indigo-300">{tx.reference_id}</td>
+                      <td className="p-2.5 capitalize">{tx.plan_id}</td>
+                      <td className="p-2.5 capitalize text-slate-400">{tx.payment_method}</td>
+                      <td className="p-2.5 font-bold text-emerald-400">
+                        ${(tx.amount_cents / 100).toFixed(2)}
+                      </td>
+                      <td className="p-2.5">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            tx.status === 'succeeded'
+                              ? 'bg-emerald-500/20 text-emerald-300'
+                              : 'bg-rose-500/20 text-rose-300'
+                          }`}
+                        >
+                          {tx.status}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-slate-500 text-[11px]">
+                        {new Date(tx.processed_at).toLocaleTimeString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Webhook Simulator Card */}
+        <div className="p-6 rounded-2xl bg-obsidian-900/80 border border-slate-800 space-y-4">
+          <h3 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+            <Send className="w-4 h-4 text-indigo-400" />
+            <span>Simulate Gateway Webhook</span>
+          </h3>
+          <p className="text-xs text-slate-400">
+            Dispatch async provider events directly into the Subscription FSM engine.
+          </p>
+
+          <form onSubmit={handleSimulateWebhookSubmit} className="space-y-3">
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">
+                Event Type
+              </label>
+              <select
+                value={webhookEvent}
+                onChange={(e) => setWebhookEvent(e.target.value)}
+                className="w-full rounded-xl border border-slate-800 bg-obsidian-950 px-3 py-2 text-xs text-slate-200 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="payment.succeeded">payment.succeeded (Active)</option>
+                <option value="payment.failed">payment.failed (Past Due)</option>
+                <option value="subscription.cancelled">subscription.cancelled (Cancelled)</option>
+              </select>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-indigo-600 text-xs font-semibold text-white shadow-indigo-600/30 hover:bg-indigo-500 transition"
+            >
+              <Send className="w-3.5 h-3.5" /> Dispatch Webhook Event
+            </button>
+          </form>
+        </div>
+      </div>
+
+      {/* Interactive Mock Payment Modal */}
+      <MockPaymentModal
+        session={activeCheckoutSession}
+        onClose={() => setActiveCheckoutSession(null)}
+        onSuccess={handlePaymentSuccess}
+      />
 
       {/* Plan Registration Modal */}
       {isPlanModalOpen && (
